@@ -20,6 +20,7 @@ export function usePanelBackgroundEffectController({
   onTemplateSelect,
   onPreview,
   onCommit,
+  independent = false,
 }: {
   effect: string;
   template: number;
@@ -30,15 +31,17 @@ export function usePanelBackgroundEffectController({
   onTemplateSelect: (idx: number) => void;
   onPreview: (state: EffectState) => void;
   onCommit: (state: EffectState) => void;
+  independent?: boolean;
 }): AnimateController {
-  const { templates: globalTemplates, rgbActiveEffect } = useAnimateTemplates();
+  const { templates: globalTemplates, rgbActiveEffect } = useAnimateTemplates(!independent);
 
   // The 4 universal slots for this effect (the real saved presets), so the
   // preset buttons render the actual shared thumbnails.
   const bundle = useMemo<EffectTemplateBundle>(() => {
-    const g = globalTemplates[effect];
-    return { selected: template, slots: g ? g.slots : defaultTemplatesFor(effect, cachedAnimateDefaults()).slots };
-  }, [globalTemplates, effect, template]);
+    const g = independent ? undefined : globalTemplates[effect];
+    const slots = g ? g.slots : defaultTemplatesFor(effect, cachedAnimateDefaults()).slots;
+    return { selected: template, slots: independent ? slots.map((slot, index) => index === template ? effectState : slot) : slots };
+  }, [globalTemplates, effect, template, effectState, independent]);
 
   const idx = Math.min(Math.max(template, 0), TEMPLATE_COUNT - 1);
   const canReset = !slotMatchesDefault(effect, idx, effectState, cachedAnimateDefaults());
@@ -76,6 +79,7 @@ export function usePanelBackgroundEffectController({
     // (per-panel, per-shader selection; default 0). Switching shaders keeps it.
     slotFor: (key: string) => Math.min(Math.max(templatesByEffect[key] ?? 0, 0), TEMPLATE_COUNT - 1),
     versionFor: (key: string) => {
+      if (independent) return key === effect ? slotThumbSignature(effectState) : '0';
       const b = globalTemplates[key];
       if (!b || b.slots.length === 0) return '0';
       const s = Math.min(Math.max(templatesByEffect[key] ?? 0, 0), b.slots.length - 1);
@@ -83,7 +87,7 @@ export function usePanelBackgroundEffectController({
     },
     // Bulb: which effect/slot is live on the RGB. The preset-row bulb only shows
     // when the background effect is the one currently driving the LEDs.
-    rgbActiveEffect,
-    rgbActiveSlot: effect === rgbActiveEffect ? (globalTemplates[rgbActiveEffect]?.selected ?? 0) : null,
+    rgbActiveEffect: independent ? '' : rgbActiveEffect,
+    rgbActiveSlot: !independent && effect === rgbActiveEffect ? (globalTemplates[rgbActiveEffect]?.selected ?? 0) : null,
   };
 }

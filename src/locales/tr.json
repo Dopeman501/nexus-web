@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "Parlaklık bilinmiyor.",
   "devices.jungle-leopard-d215.brightness.writing": "Parlaklık uygulanıyor…",
   "devices.jungle-leopard-d215.panels.count": "{count}/{max} panel",
+  "devices.jungle-leopard-d215.panels.backgrounds": "Arka planlar",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "Her panelin kendi arka planı vardır. Kapatmak kayıtlı ayarları korur.",
   "devices.jungle-leopard-d215.panels.enabled": "Panelleri göster",
   "devices.jungle-leopard-d215.panels.enabledHint": "Daireleri aynı anda gösterir. Widget ayarlarınız korunur.",
   "devices.jungle-leopard-d215.panels.full": "Bu ekranda zaten altı panel var. Başka bir panel eklemek için birini kaldırın.",

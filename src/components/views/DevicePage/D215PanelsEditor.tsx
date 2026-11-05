@@ -2,7 +2,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react';
 import { useMemo, type CSSProperties } from 'react';
 import { useTranslation } from '../../../lib/i18n';
 import { createUuid } from '../../../lib/uuid';
-import { addD215Panel, d215PanelWidget, readD215Panels, removeD215Panel, setD215PanelsEnabled, updateD215PanelConfig } from '../../../panel/d215/d215Panels';
+import { addD215Panel, d215PanelWidget, readD215Panels, removeD215Panel, setD215PanelsEnabled, setD215PanelBackgroundsEnabled, updateD215PanelBackground, updateD215PanelConfig } from '../../../panel/d215/d215Panels';
 import type { D215PanelCanvas } from '../../../panel/d215/d215PanelGeometry';
 import { MAX_D215_PANELS } from '../../../panel/d215/d215PanelTypes';
 import { PanelWidgetCatalog } from '../../../panel/editor/PanelWidgetCatalog';
@@ -14,11 +14,12 @@ import { Card } from '../../common/Card/Card';
 import { ErrorBoundary } from '../../common/ErrorBoundary/ErrorBoundary';
 import { SettingToggle } from '../../common/SettingRow/SettingRow';
 import styles from './D215PanelsEditor.module.scss';
+import { D215PanelBackgroundSettings } from './D215PanelBackgroundSettings';
 
 const COPY = 'devices.jungle-leopard-d215.panels';
 const ROUND_SURFACE = 'lcd-round';
 
-export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChange, themeStyle, themeMode = 'dark', deviceId }: {
+export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChange, themeStyle, themeMode = 'dark', backgroundThemeMode = themeMode, deviceId }: {
   layout: PanelLayout;
   canvas: D215PanelCanvas;
   selectedId: string | null;
@@ -26,6 +27,7 @@ export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChang
   onChange: (layout: PanelLayout) => void;
   themeStyle?: CSSProperties;
   themeMode?: 'dark' | 'light';
+  backgroundThemeMode?: 'dark' | 'light';
   deviceId?: string;
 }) {
   const { t } = useTranslation();
@@ -43,6 +45,8 @@ export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChang
       <Card compact>
         <SettingToggle label={t(`${COPY}.enabled`)} description={t(`${COPY}.enabledHint`)} checked={state.enabled}
           onChange={enabled => onChange(setD215PanelsEnabled(layout, enabled))} />
+        <SettingToggle label={t(`${COPY}.backgrounds`)} description={t(`${COPY}.backgroundsHint`)} checked={state.backgroundsEnabled !== false}
+          onChange={enabled => onChange(setD215PanelBackgroundsEnabled(layout, enabled))} />
         <p className={styles.hint}>{t(`${COPY}.hint`)}</p>
         <span className={styles.count} role="status">{t(`${COPY}.count`, { count: state.items.length, max: MAX_D215_PANELS })}</span>
         {state.items.length > 0 && (
@@ -76,6 +80,9 @@ export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChang
               ) : <p className={styles.hint}>{t(selectedApp ? 'devices.panels.widgetSettings.noConfigurableSettings' : `${COPY}.unavailable`)}</p>}
             </ErrorBoundary>
           </PanelDeviceIdProvider>
+          {state.backgroundsEnabled !== false && <D215PanelBackgroundSettings key={selected.id}
+            background={selected.background} onChange={patch => onChange(updateD215PanelBackground(layout, selected.id, patch))}
+            themeMode={backgroundThemeMode} deviceId={deviceId} diameter={Math.round(selected.diameter * Math.min(canvas.width, canvas.height))} />}
         </div>
       ) : (
         <>

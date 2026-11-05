@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "La luminosité est inconnue.",
   "devices.jungle-leopard-d215.brightness.writing": "Réglage de la luminosité…",
   "devices.jungle-leopard-d215.panels.count": "{count} panneaux sur {max}",
+  "devices.jungle-leopard-d215.panels.backgrounds": "Arrière-plans",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "Chaque panneau a son propre arrière-plan. La désactivation conserve les réglages.",
   "devices.jungle-leopard-d215.panels.enabled": "Afficher les panneaux",
   "devices.jungle-leopard-d215.panels.enabledHint": "Affiche les cercles simultanément. La configuration des widgets est conservée.",
   "devices.jungle-leopard-d215.panels.full": "Cet écran affiche déjà six panneaux. Supprimez-en un pour en ajouter un autre.",

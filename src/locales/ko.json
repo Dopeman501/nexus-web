@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "밝기를 알 수 없습니다.",
   "devices.jungle-leopard-d215.brightness.writing": "밝기 적용 중…",
   "devices.jungle-leopard-d215.panels.count": "패널 {count}/{max}개",
+  "devices.jungle-leopard-d215.panels.backgrounds": "배경",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "각 패널에 개별 배경을 설정합니다. 꺼도 저장된 설정은 유지됩니다.",
   "devices.jungle-leopard-d215.panels.enabled": "패널 표시",
   "devices.jungle-leopard-d215.panels.enabledHint": "원형 패널을 동시에 표시합니다. 위젯 설정은 유지됩니다.",
   "devices.jungle-leopard-d215.panels.full": "이 디스플레이에는 이미 패널이 6개 있습니다. 다른 패널을 추가하려면 하나를 삭제하세요.",

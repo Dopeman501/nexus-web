@@ -27,6 +27,7 @@
 }
 
 .card {
+  position: relative;
   width: 100%;
   height: 100%;
   border-radius: 50%;
@@ -35,9 +36,29 @@
 }
 
 .content {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-shrink: 0;
   transform-origin: center;
+  pointer-events: none;
+}
+
+.item[data-backgrounds='false'],
+.item[data-custom-background] {
+  --panel-card-bg-opacity: 0%;
+  --panel-card-bg-alpha: 0;
+}
+
+.background {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  // Existing background renderers use fixed layers. Containment gives each
+  // circle its own fixed-position containing block and paint boundary.
+  contain: layout paint;
+  isolation: isolate;
   pointer-events: none;
 }
 

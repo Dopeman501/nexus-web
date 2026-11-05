@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "O brilho é desconhecido.",
   "devices.jungle-leopard-d215.brightness.writing": "A aplicar o brilho…",
   "devices.jungle-leopard-d215.panels.count": "{count} de {max} painéis",
+  "devices.jungle-leopard-d215.panels.backgrounds": "Fundos",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "Cada painel tem o seu próprio fundo. Desativar mantém as definições guardadas.",
   "devices.jungle-leopard-d215.panels.enabled": "Mostrar painéis",
   "devices.jungle-leopard-d215.panels.enabledHint": "Mostra os círculos em simultâneo. A configuração dos widgets é mantida.",
   "devices.jungle-leopard-d215.panels.full": "Este ecrã já tem seis painéis. Remova um para adicionar outro.",

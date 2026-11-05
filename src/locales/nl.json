@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "De helderheid is onbekend.",
   "devices.jungle-leopard-d215.brightness.writing": "Helderheid instellen…",
   "devices.jungle-leopard-d215.panels.count": "{count} van {max} panelen",
+  "devices.jungle-leopard-d215.panels.backgrounds": "Achtergronden",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "Elk paneel heeft een eigen achtergrond. Uitschakelen bewaart je instellingen.",
   "devices.jungle-leopard-d215.panels.enabled": "Panelen tonen",
   "devices.jungle-leopard-d215.panels.enabledHint": "Toon de cirkels tegelijk. Je widgetinstellingen blijven behouden.",
   "devices.jungle-leopard-d215.panels.full": "Dit scherm heeft al zes panelen. Verwijder er één om een ander toe te voegen.",

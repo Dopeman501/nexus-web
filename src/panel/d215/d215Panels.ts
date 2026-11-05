@@ -2,6 +2,7 @@ import type { PanelLayout, PanelWidget, PanelConfigValue } from '../types';
 import { appAvailableForSurface, lookupApp } from '../widgets/registry';
 import { nextCirclePlacement, type D215PanelCanvas } from './d215PanelGeometry';
 import { MAX_D215_PANELS, type D215PanelInstance, type D215PanelsState } from './d215PanelTypes';
+import { readD215PanelBackground, type D215PanelBackground } from './d215PanelBackground';
 
 const bounded = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(maximum, value));
 
@@ -21,10 +22,12 @@ export function readD215Panels(value: unknown): D215PanelsState {
       id: item.id, type: item.type,
       x: bounded(item.x, 0, 1), y: bounded(item.y, 0, 1), diameter: bounded(item.diameter, 0.12, 1),
       ...(item.config && typeof item.config === 'object' && !Array.isArray(item.config) ? { config: { ...item.config } } : {}),
+      ...(item.background ? { background: readD215PanelBackground(item.background) } : {}),
     });
     if (items.length === MAX_D215_PANELS) break;
   }
-  return { enabled: input.enabled === true, items };
+  return { enabled: input.enabled === true, items,
+    ...(typeof input.backgroundsEnabled === 'boolean' ? { backgroundsEnabled: input.backgroundsEnabled } : {}) };
 }
 
 export function d215PanelWidget(item: D215PanelInstance): PanelWidget {
@@ -40,7 +43,18 @@ export function addD215Panel(layout: PanelLayout, type: string, id: string, canv
     || (app.meta.singleInstance && (state.items.some(item => item.type === type)
       || layout.pages.some(page => page.widgets.some(widget => widget.type === type))))) return layout;
   const item: D215PanelInstance = { id, type, ...nextCirclePlacement(state.items, canvas) };
-  return { ...layout, d215Panels: { enabled: true, items: [...state.items, item] } };
+  return { ...layout, d215Panels: { ...state, enabled: true, items: [...state.items, item] } };
+}
+
+export function setD215PanelBackgroundsEnabled(layout: PanelLayout, backgroundsEnabled: boolean): PanelLayout {
+  return { ...layout, d215Panels: { ...readD215Panels(layout.d215Panels), backgroundsEnabled } };
+}
+
+export function updateD215PanelBackground(layout: PanelLayout, id: string, patch: Partial<D215PanelBackground>): PanelLayout {
+  const state = readD215Panels(layout.d215Panels);
+  if (!state.items.some(item => item.id === id)) return layout;
+  return { ...layout, d215Panels: { ...state, items: state.items.map(item => item.id === id
+    ? { ...item, background: readD215PanelBackground({ ...item.background, ...patch }) } : item) } };
 }
 
 export function setD215PanelsEnabled(layout: PanelLayout, enabled: boolean): PanelLayout {

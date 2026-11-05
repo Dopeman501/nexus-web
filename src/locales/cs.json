@@ -1047,6 +1047,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "Jas není znám.",
   "devices.jungle-leopard-d215.brightness.writing": "Nastavuje se jas…",
   "devices.jungle-leopard-d215.panels.count": "{count} z {max} panelů",
+  "devices.jungle-leopard-d215.panels.backgrounds": "Pozadí",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "Každý panel má vlastní pozadí. Vypnutí zachová uložená nastavení.",
   "devices.jungle-leopard-d215.panels.enabled": "Zobrazit panely",
   "devices.jungle-leopard-d215.panels.enabledHint": "Zobrazí kruhy současně. Nastavení widgetů zůstane zachováno.",
   "devices.jungle-leopard-d215.panels.full": "Na tomto displeji už je šest panelů. Chcete-li přidat další, jeden odeberte.",

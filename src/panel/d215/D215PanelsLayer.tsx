@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
-import { ErrorBoundary } from '../../components/common/ErrorBoundary/ErrorBoundary';
 import { useTranslation } from '../../lib/i18n';
-import type { PanelWidget } from '../types';
 import { appAvailableForSurface, lookupApp } from '../widgets/registry';
 import { PanelOpaqueProvider } from '../widgets/common/PanelOpaqueContext';
 import { clampCircle, circleBounds, moveCircle, resizeCircle, type D215AlignmentGuides, type D215PanelCanvas, type D215ResizeCorner } from './d215PanelGeometry';
 import { MAX_D215_PANELS, type D215PanelInstance, type D215PanelsState } from './d215PanelTypes';
 import styles from './D215PanelsLayer.module.scss';
+import { D215PanelFace } from './D215PanelFace';
 
 const DESIGN_SIDE = 190;
 const NO_GUIDES: D215AlignmentGuides = { vertical: [], horizontal: [] };
@@ -18,6 +17,7 @@ interface LayerProps {
   selectedId?: string | null;
   previewScale?: number;
   deviceId?: string;
+  themeMode?: 'dark' | 'light';
   onChange?: (panels: D215PanelsState) => void;
   onSelect?: (id: string) => void;
 }
@@ -59,7 +59,7 @@ function sameGeometry(left: D215PanelInstance, right: D215PanelInstance): boolea
 }
 
 /** Shared by the actual framebuffer and its desktop preview; only the latter edits. */
-export function D215PanelsLayer({ panels, editing = false, selectedId = null, previewScale = 1, deviceId, onChange, onSelect }: LayerProps) {
+export function D215PanelsLayer({ panels, editing = false, selectedId = null, previewScale = 1, deviceId, themeMode = 'dark', onChange, onSelect }: LayerProps) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
@@ -194,8 +194,6 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
           const bounds = circleBounds(shown, canvas);
           const label = t(app.meta.i18nKey) || item.type;
           const selected = editing && selectedId === item.id;
-          const Widget = app.Widget;
-          const widget: PanelWidget = { id: item.id, type: item.type, size: '2x2round', col: 0, row: 0, config: item.config };
           const fullBleed = item.type === 'gallery' || item.type.startsWith('app:') || item.type.startsWith('marketplace:');
           const contentStyle = {
             width: DESIGN_SIDE, height: DESIGN_SIDE,
@@ -203,6 +201,7 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
           };
           return (
             <div key={item.id} className={styles.item} data-d215-panel-id={item.id} data-selected={selected || undefined}
+              data-backgrounds={panels.backgroundsEnabled !== false} data-custom-background={!!item.background || undefined}
               role={editing ? 'button' : undefined} tabIndex={editing ? 0 : undefined}
               aria-label={editing ? t('devices.jungle-leopard-d215.panels.move', { name: label }) : undefined}
               style={{ left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }}
@@ -211,13 +210,8 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
               onLostPointerCapture={event => { if (event.pointerId === gesture.current?.pointerId) cancel(); }}
               onKeyDown={event => key(event, item)}
               onClick={editing ? event => { event.stopPropagation(); onSelect?.(item.id); } : undefined}>
-              <div className={`panel-card ${styles.card}`} data-size="2x2round" data-widget-type={item.type} style={{ padding: 0 }}>
-                <div className={styles.content} style={contentStyle}>
-                  <ErrorBoundary label={item.type} resetKey={item.type}>
-                    <Widget widget={widget} surface="lcd-round" deviceTouch={false} deviceId={deviceId} editorPreview={editing} />
-                  </ErrorBoundary>
-                </div>
-              </div>
+              <D215PanelFace item={item} app={app} backgroundsEnabled={panels.backgroundsEnabled !== false}
+                deviceId={deviceId} themeMode={themeMode} editing={editing} contentStyle={contentStyle} />
               {selected && (Object.keys(CORNERS) as D215ResizeCorner[]).map(corner => (
                 <button key={corner} type="button" className={styles.handle} data-corner={corner}
                   aria-label={t(`panel.freeform.handle.${CORNERS[corner]}`, { name: label })}

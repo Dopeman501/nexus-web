@@ -1790,7 +1790,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                     <PanelGaugeGradientProvider value={gaugeGradientValue}>
                       <D215PanelsEditor layout={layout} canvas={editorCanvas ?? { width: 1680, height: 756 }}
                         selectedId={selectedPanelId} onSelect={setSelectedPanelId} onChange={updateLayout}
-                        themeStyle={panelPreviewThemeStyle} themeMode={desktopResolvedThemeMode} deviceId={editingDeviceId ?? undefined} />
+                        themeStyle={panelPreviewThemeStyle} themeMode={desktopResolvedThemeMode} backgroundThemeMode={resolvedPanelThemeMode} deviceId={editingDeviceId ?? undefined} />
                     </PanelGaugeGradientProvider>
                   )}
                   {(activeTab === 'theme' || activeTab === 'background') && (() => {

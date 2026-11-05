@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "亮度未知。",
   "devices.jungle-leopard-d215.brightness.writing": "正在套用亮度…",
   "devices.jungle-leopard-d215.panels.count": "{count}/{max} 個面板",
+  "devices.jungle-leopard-d215.panels.backgrounds": "背景",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "為每個面板分別設定背景。關閉後會保留已儲存的設定。",
   "devices.jungle-leopard-d215.panels.enabled": "顯示面板",
   "devices.jungle-leopard-d215.panels.enabledHint": "同時顯示所有圓形面板。小工具設定會保留。",
   "devices.jungle-leopard-d215.panels.full": "此顯示器已有六個面板。請先移除一個，再新增其他面板。",

@@ -1047,6 +1047,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "Яркость неизвестна.",
   "devices.jungle-leopard-d215.brightness.writing": "Настройка яркости…",
   "devices.jungle-leopard-d215.panels.count": "Панели: {count} из {max}",
+  "devices.jungle-leopard-d215.panels.backgrounds": "Фоны",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "У каждой панели свой фон. Отключение сохраняет настройки.",
   "devices.jungle-leopard-d215.panels.enabled": "Показать панели",
   "devices.jungle-leopard-d215.panels.enabledHint": "Отображает круги одновременно. Настройки виджетов сохраняются.",
   "devices.jungle-leopard-d215.panels.full": "На этом дисплее уже шесть панелей. Удалите одну, чтобы добавить другую.",

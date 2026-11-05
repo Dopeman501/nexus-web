@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { PanelLayout } from '../types';
-import { addD215Panel, d215PanelWidget, readD215Panels, removeD215Panel, setD215PanelsEnabled, updateD215PanelConfig } from './d215Panels';
+import { addD215Panel, d215PanelWidget, readD215Panels, removeD215Panel, setD215PanelsEnabled, setD215PanelBackgroundsEnabled, updateD215PanelBackground, updateD215PanelConfig } from './d215Panels';
 
 vi.mock('../widgets/registry', () => ({
   lookupApp: (type: string) => ['clock', 'monitoring', 'exclusive'].includes(type)
@@ -17,6 +17,38 @@ const seed = (): PanelLayout => ({
 const canvas = { width: 1680, height: 756 };
 
 describe('D215 independent circle state', () => {
+  it('stores independent backgrounds, preserving them across toggles, additions and widget settings edits', () => {
+    const original = addD215Panel(addD215Panel(seed(), 'monitoring', 'cpu', canvas), 'monitoring', 'gpu', canvas);
+    const red = updateD215PanelBackground(original, 'cpu', { mode: 'solid', color: '#ff0000', opacity: 0.5 });
+    const blue = updateD215PanelBackground(red, 'gpu', { mode: 'solid', color: '#0000ff' });
+    expect(blue.d215Panels?.items.map(item => item.background?.color)).toEqual(['#ff0000', '#0000ff']);
+    expect(original.d215Panels?.items[0].background).toBeUndefined();
+    const off = setD215PanelBackgroundsEnabled(blue, false);
+    const added = addD215Panel(off, 'monitoring', 'third', canvas);
+    expect(added.d215Panels?.backgroundsEnabled).toBe(false);
+    const configured = updateD215PanelConfig(added, 'cpu', { label: 'new' });
+    const restored = setD215PanelBackgroundsEnabled(setD215PanelsEnabled(configured, false), true);
+    expect(restored.d215Panels?.items[0].background).toEqual(red.d215Panels?.items[0].background);
+    expect(restored.d215Panels?.items[1].background).toEqual(blue.d215Panels?.items[1].background);
+    expect(restored.pages).toBe(original.pages);
+    expect(updateD215PanelBackground(original, 'missing', { color: '#ffffff' })).toBe(original);
+  });
+
+  it('normalizes malformed background values and copies nested background state', () => {
+    const effectState = { speed: 20, intensity: 1, hue: 0, colorize: 0, saturation: 1, contrast: 1, params: { zoom: 1 } };
+    const input = { enabled: true, backgroundsEnabled: false, items: [{ id: 'one', type: 'monitoring', x: 0.5, y: 0.5,
+      diameter: 0.4, background: { mode: 'shader', color: 'url(evil)', opacity: Infinity, frost: -10,
+        mediaId: '../bad', mediaType: 'script', mediaOrder: ['safe-asset', '../bad'], effectState } }] };
+    const normalized = readD215Panels(input);
+    expect(normalized.backgroundsEnabled).toBe(false);
+    expect(normalized.items[0].background).toMatchObject({ mode: 'shader', opacity: 1, frost: 0, mediaOrder: ['safe-asset'] });
+    expect(normalized.items[0].background?.color).toBeUndefined();
+    expect(normalized.items[0].background?.mediaId).toBeNull();
+    expect(normalized.items[0].background?.mediaType).toBeNull();
+    expect(normalized.items[0].background?.effectState).toEqual(effectState);
+    expect(normalized.items[0].background?.effectState?.params).not.toBe(effectState.params);
+  });
+
   it('leaves an old layout unchanged when Panels is disabled without being configured', () => {
     const layout = seed();
     expect(setD215PanelsEnabled(layout, false)).toBe(layout);

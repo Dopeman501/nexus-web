@@ -9,6 +9,11 @@ vi.mock('../../../panel/editor/PanelWidgetCatalog', () => ({
     <button disabled={!canAddSize('2x2round')} onClick={() => onAdd('monitoring', '2x2round')}>add circle</button>
   ),
 }));
+vi.mock('./D215PanelBackgroundSettings', () => ({
+  D215PanelBackgroundSettings: ({ background, onChange }: { background?: { color?: string }; onChange: (patch: { color: string }) => void }) => (
+    <input aria-label="circle background" value={background?.color ?? ''} onChange={event => onChange({ color: event.target.value })} />
+  ),
+}));
 vi.mock('../../../panel/widgets/registry', () => ({
   lookupApp: () => ({
     meta: { i18nKey: 'monitoring', sizes: ['2x2round'] },
@@ -31,6 +36,27 @@ function Harness({ value = initial }: { value?: PanelLayout }) {
 }
 
 describe('D215 Panels editor', () => {
+  it('toggles backgrounds and edits only the selected circle while retaining disabled settings', () => {
+    changed.mockClear();
+    const items = ['cpu', 'gpu'].map(id => ({ id, type: 'monitoring', x: 0.5, y: 0.5, diameter: 0.4,
+      background: { color: id === 'cpu' ? '#ff0000' : '#0000ff' } }));
+    render(<Harness value={{ ...initial, d215Panels: { enabled: true, items } }} />);
+    const toggle = screen.getByRole('switch', { name: `${copy}.backgrounds` });
+    expect(toggle).toBeChecked();
+    fireEvent.click(screen.getAllByRole('button', { name: /monitoring/ })[0]);
+    expect(screen.getByLabelText('circle background')).toHaveValue('#ff0000');
+    fireEvent.change(screen.getByLabelText('circle background'), { target: { value: '#00ff00' } });
+    expect(changed.mock.lastCall?.[0].d215Panels.items.map((item: { background: { color: string } }) => item.background.color))
+      .toEqual(['#00ff00', '#0000ff']);
+    fireEvent.click(toggle);
+    expect(screen.queryByLabelText('circle background')).not.toBeInTheDocument();
+    expect(changed.mock.lastCall?.[0].d215Panels.backgroundsEnabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText('circle background')).toHaveValue('#00ff00');
+    fireEvent.click(screen.getAllByRole('button', { name: /monitoring/ })[1]);
+    expect(screen.getByLabelText('circle background')).toHaveValue('#0000ff');
+  });
+
   it('adds six independent circles, enables the mode and refuses a seventh', () => {
     changed.mockClear();
     render(<Harness />);

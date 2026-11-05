@@ -1039,6 +1039,8 @@
   "devices.jungle-leopard-d215.brightness.unknown": "明るさは不明です。",
   "devices.jungle-leopard-d215.brightness.writing": "明るさを設定中…",
   "devices.jungle-leopard-d215.panels.count": "{max} 個中 {count} 個のパネル",
+  "devices.jungle-leopard-d215.panels.backgrounds": "背景",
+  "devices.jungle-leopard-d215.panels.backgroundsHint": "各パネルに個別の背景を設定します。オフにしても設定は保持されます。",
   "devices.jungle-leopard-d215.panels.enabled": "パネルを表示",
   "devices.jungle-leopard-d215.panels.enabledHint": "円形パネルを同時に表示します。ウィジェットの設定は保持されます。",
   "devices.jungle-leopard-d215.panels.full": "このディスプレイにはすでに6個のパネルがあります。別のパネルを追加するには、1個削除してください。",

@@ -2447,7 +2447,7 @@ export function PanelContent({
           <>
             {showD215Panels ? (
               <div className={styles.panelStage}>
-                <D215PanelsLayer panels={d215Panels}
+                <D215PanelsLayer panels={d215Panels} themeMode={resolvedThemeMode}
                   deviceId={deviceId} editing={simulator && panelsEditing && !restricted} selectedId={simulatorSelectedWidgetId}
                   previewScale={simulatorPreviewScale} onSelect={onSimulatorWidgetClicked}
                   onChange={next => setFullLayout({ ...fullLayout, d215Panels: next })} />

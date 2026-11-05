@@ -180,6 +180,8 @@ export interface PanelThemeSettingsProps {
   backgroundHeldBy?: string | null;
   /** panelAudioReactiveAllowed for the surface being edited. Off offers no audio effects. */
   audioReactive?: boolean;
+  /** Circle backgrounds own their animation edits instead of shared RGB presets. */
+  independentBackground?: boolean;
 }
 
 export function PanelThemeSettings({
@@ -231,6 +233,7 @@ export function PanelThemeSettings({
   sections = 'all',
   backgroundHeldBy = null,
   audioReactive = false,
+  independentBackground = false,
 }: PanelThemeSettingsProps) {
   const showTheme = sections !== 'background';
   const showBackground = sections !== 'theme';
@@ -320,11 +323,12 @@ export function PanelThemeSettings({
     onTemplateSelect: onBackgroundTemplateCommit,
     onPreview: onBackgroundEffectStatePreview,
     onCommit: onBackgroundEffectStateCommit,
+    independent: independentBackground,
   });
 
   // Cross-panel usage drives the "used by a panel" badge on the grid + presets,
   // excluding this panel so its own selection never badges itself.
-  const panelUsage = usePanelBackgroundUsage(deviceId);
+  const panelUsage = usePanelBackgroundUsage(deviceId, !independentBackground);
 
   // Normal flow for solid and media, inside the sticky dock for shader mode so
   // it pins while the effect grid scrolls. The two positions mean React
@@ -644,7 +648,7 @@ export function PanelThemeSettings({
                     slotFor={backgroundController.slotFor}
                     versionFor={backgroundController.versionFor}
                     rgbActiveEffect={backgroundController.rgbActiveEffect}
-                    panelEffects={panelUsage.effects}
+                    panelEffects={independentBackground ? undefined : panelUsage.effects}
                   />
                 ) : (
                   <EffectControls
@@ -657,7 +661,7 @@ export function PanelThemeSettings({
                     onCommit={backgroundController.onCommit}
                     onReset={backgroundController.onReset}
                     rgbActiveSlot={backgroundController.rgbActiveSlot}
-                    panelSlots={panelUsage.slotsByEffect.get(backgroundController.effect)}
+                    panelSlots={independentBackground ? undefined : panelUsage.slotsByEffect.get(backgroundController.effect)}
                   />
                 )}
               </>

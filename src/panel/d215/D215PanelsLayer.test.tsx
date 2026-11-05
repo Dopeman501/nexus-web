@@ -69,6 +69,19 @@ beforeEach(() => {
 });
 
 describe('D215PanelsLayer rendering', () => {
+  it('draws independent backgrounds in clipped circle containers and removes them when disabled', () => {
+    const panels = { ...state(), backgroundsEnabled: true, items: state().items.map((item, index) => ({ ...item,
+      background: { mode: 'solid' as const, color: index === 0 ? '#ff0000' : '#0000ff', opacity: 0.7 } })) };
+    const { circle, rerender, props } = mount(panels);
+    expect(circle('a').querySelector('[data-d215-panel-background]')).toHaveStyle({ '--panel-background-solid': '#ff0000' });
+    expect(circle('b').querySelector('[data-d215-panel-background]')).toHaveStyle({ '--panel-background-solid': '#0000ff' });
+    expect(circle('a').querySelector('[data-panel-bg-layer]')).toHaveStyle({ '--panel-background-opacity': '0.7' });
+    rerender(<D215PanelsLayer {...props} panels={{ ...panels, backgroundsEnabled: false }} />);
+    expect(circle('a').querySelector('[data-d215-panel-background]')).toBeNull();
+    expect(circle('a')).toHaveAttribute('data-backgrounds', 'false');
+    expect(screen.getByTestId('widget-a')).toBeInTheDocument();
+  });
+
   it('renders simultaneous independent round widgets using square bounds and the device identity', () => {
     const { circle } = mount();
     expect(screen.getByTestId('widget-a')).toHaveTextContent('CPU');
