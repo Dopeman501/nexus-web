@@ -1,6 +1,6 @@
 import { fetchService, postService } from './service';
 
-export const D215_BRIGHTNESS_PRESETS = [80, 100] as const;
+export const D215_BRIGHTNESS_PRESETS = [20, 40, 60, 80, 100] as const;
 export type D215BrightnessPreset = typeof D215_BRIGHTNESS_PRESETS[number];
 export interface D215BrightnessResult {
   status: 'confirmed' | 'unavailable' | 'busy' | 'mismatch' | 'failed';

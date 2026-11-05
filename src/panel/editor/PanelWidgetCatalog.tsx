@@ -101,6 +101,8 @@ export interface PanelWidgetCatalogProps {
   // naming the reason. Omitted on surfaces that can spill onto a new page:
   // they are never full, so nothing is dimmed.
   canAddSize?: (size: PanelWidgetSize) => boolean;
+  /** The host's capacity reason when its limit is a count rather than grid space. */
+  fullHint?: string;
   // Widget types already on this panel. A type whose meta sets singleInstance
   // is dimmed once one is placed; every other type ignores this.
   placedTypes?: readonly string[];
@@ -144,6 +146,7 @@ export function PanelWidgetCatalog({
   onAdd,
   onEditWidget,
   canAddSize,
+  fullHint,
   placedTypes,
   searchable = true,
   variant = 'panel-sheet',
@@ -432,7 +435,7 @@ export function PanelWidgetCatalog({
       <div className={styles.noticeRegion} role="status">
         {gridFull && (
           <div className={styles.notice}>
-            <Notice tone="info">{t('panel.add.full')}</Notice>
+            <Notice tone="info">{fullHint ?? t('panel.add.full')}</Notice>
           </div>
         )}
       </div>

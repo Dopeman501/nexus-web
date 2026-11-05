@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { FRAME_RATE_OFF, frameRateCaps, frameRateFromValue, frameRateValue, showsFrameRateSetting } from './frameRateOptions';
 
 describe('frameRateCaps', () => {
-  it('offers Off then the lighting frame cap list', () => {
-    expect(frameRateCaps(null)).toEqual([null, 30, 25, 20, 15, 10, 5, 1]);
+  it('offers Off then display frame caps through 60 fps', () => {
+    expect(frameRateCaps(null)).toEqual([null, 60, 30, 25, 20, 15, 10, 5, 1]);
   });
 
   it('keeps a stored cap outside the presets listed', () => {
-    expect(frameRateCaps(24)).toEqual([null, 30, 25, 24, 20, 15, 10, 5, 1]);
+    expect(frameRateCaps(24)).toEqual([null, 60, 30, 25, 24, 20, 15, 10, 5, 1]);
     expect(frameRateCaps(60)).toEqual([null, 60, 30, 25, 20, 15, 10, 5, 1]);
   });
 });

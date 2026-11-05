@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PanelLayout, PanelWidget } from '../../../panel/types';
 
@@ -185,6 +185,33 @@ async function renderPage(rec: Record<string, unknown>, device: PanelDevice = DE
 }
 
 describe('PanelDevicePage widget size', () => {
+  it('keeps the saved D215 cap when an older Settings read completes after the save', async () => {
+    const family = 'jungle-leopard-d215';
+    const device: PanelDevice = { ...DEVICE, id: 'stream:lcd5', family, connectionKind: 'usb-display',
+      displayId: undefined, runtimeSurface: 'lcd-wide', previewSize: { width: 1680, height: 756 } };
+    const initial = record({ displayId: undefined, streamed: true, portrait: false, fpsCap: 30,
+      capabilities: { family, surface: 'lcd-wide', cssWidth: 1680, cssHeight: 756, dpr: 1, touch: false },
+      layout: layout([], 'lcd-wide'),
+    });
+    fetchPanelDevicesMock.mockResolvedValue({ devices: [initial] });
+    let completeStale!: (value: typeof initial) => void;
+    fetchPanelDeviceMock.mockImplementationOnce(() => new Promise(resolve => { completeStale = resolve; }));
+    patchPanelDeviceMock.mockResolvedValue({ ...initial, fpsCap: 60 });
+    render(<PanelDevicePage device={device} />);
+    const settings = await screen.findByRole('tab', { name: 'devices.y70.tab.settings' });
+    await act(async () => { fireEvent.click(settings); });
+    const cap = () => screen.getByRole('button', { name: 'lighting.ledMap.rateCap' });
+    fireEvent.click(cap());
+    const options = await screen.findAllByRole('option');
+    await act(async () => {
+      fireEvent.click(options[1]); // Off, then 60 fps.
+    });
+    expect(patchPanelDeviceMock).toHaveBeenCalledWith('lcd5', { fpsCap: 60 });
+    await act(async () => { completeStale({ ...initial, fpsCap: 5 }); });
+    fireEvent.click(cap());
+    expect(screen.getAllByRole('option')[1]).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('edits the D215 portrait playlist through the native panel record', async () => {
     const surface = 'lcd-portrait';
     const family = 'jungle-leopard-d215';
@@ -228,14 +255,21 @@ describe('PanelDevicePage widget size', () => {
 
     const settings = await screen.findByRole('tab', { name: 'devices.y70.tab.settings' });
     await act(async () => { fireEvent.click(settings); });
-    const portraitMount = () => screen.getByRole('switch', { name: 'devices.lcd.portrait' });
-    expect(portraitMount()).toBeChecked();
-    await act(async () => { fireEvent.click(portraitMount()); });
-    expect(patchPanelDeviceMock).toHaveBeenCalledWith('lcd5', { portrait: false });
-    expect(portraitMount()).not.toBeChecked();
+    const rotation = (angle: number) => within(screen.getByRole('radiogroup', { name: 'devices.lcd.rotation' }))
+      .getAllByRole('radio').find(chip => chip.dataset.chipKey === String(angle))!;
+    expect(rotation(90)).toBeChecked();
+    expect(screen.queryByRole('switch', { name: 'devices.lcd.portrait' })).not.toBeInTheDocument();
+    let completeStaleRead!: (value: typeof initial) => void;
+    fetchPanelDeviceMock.mockImplementationOnce(() => new Promise(resolve => { completeStaleRead = resolve; }));
+    await act(async () => { topicHandler?.({ deviceId: 'lcd5' }); });
+    await act(async () => { fireEvent.click(rotation(0)); });
+    expect(patchPanelDeviceMock).toHaveBeenCalledWith('lcd5', { portrait: false, flip180: false });
+    expect(rotation(0)).toBeChecked();
+    await act(async () => { completeStaleRead(initial); });
+    expect(rotation(0)).toBeChecked();
     expect(screen.getByTestId('embed')).toHaveAttribute('data-surface', 'lcd-portrait');
 
-    fetchPanelDeviceMock.mockResolvedValue({ ...initial, portrait: false,
+    fetchPanelDeviceMock.mockResolvedValue({ ...initial, portrait: false, flip180: true,
       capabilities: { ...initial.capabilities, surface: 'lcd-wide', cssWidth: 1680, cssHeight: 756 },
     });
     await act(async () => { topicHandler?.({ deviceId: 'lcd5' }); });
@@ -244,6 +278,7 @@ describe('PanelDevicePage widget size', () => {
     expect(preview).toHaveAttribute('data-width', '1680');
     expect(preview).toHaveAttribute('data-height', '756');
     expect(preview).toHaveAttribute('data-widget-size', '4x2');
+    expect(rotation(180)).toBeChecked();
     expect(screen.queryByRole('switch', { name: 'devices.lcd.flip180' })).not.toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: 'devices.lcd.mirror' })).not.toBeInTheDocument();
 
@@ -256,11 +291,11 @@ describe('PanelDevicePage widget size', () => {
     })));
 
     fireEvent.click(settings);
-    expect(portraitMount()).not.toBeChecked();
+    expect(rotation(180)).toBeChecked();
     patchPanelDeviceMock.mockResolvedValueOnce(null);
-    await act(async () => { fireEvent.click(portraitMount()); });
-    expect(patchPanelDeviceMock).toHaveBeenLastCalledWith('lcd5', { portrait: true });
-    expect(portraitMount()).not.toBeChecked();
+    await act(async () => { fireEvent.click(rotation(270)); });
+    expect(patchPanelDeviceMock).toHaveBeenLastCalledWith('lcd5', { portrait: true, flip180: true });
+    expect(rotation(180)).toBeChecked();
     expect(preview).toHaveAttribute('data-surface', 'lcd-wide');
     expect(pushToastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'devices.panels.saveFailedTitle' }));
   });

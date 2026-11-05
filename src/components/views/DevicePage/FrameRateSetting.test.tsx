@@ -35,21 +35,24 @@ describe('FrameRateSetting', () => {
     toast.push.mockReset();
   });
 
-  it('lists Off then the lighting frame cap values, in fps-agnostic Hz labels', () => {
+  it('lists Off then display caps up to 60, in fps-agnostic Hz labels', () => {
     render(<FrameRateSetting recordId="p1" cap={null} />);
     expect(trigger().textContent).toContain(OFF);
     fireEvent.click(trigger());
-    expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual([OFF, ...[30, 25, 20, 15, 10, 5, 1].map(HZ)]);
+    expect(screen.getAllByRole('option').map(o => o.textContent)).toEqual([OFF, ...[60, 30, 25, 20, 15, 10, 5, 1].map(HZ)]);
   });
 
   it('sends the pick, and 0 for Off', async () => {
     api.patchPanelDevice.mockResolvedValue({ id: 'p1' });
-    render(<FrameRateSetting recordId="p1" cap={null} />);
-    pick(HZ(15));
-    expect(api.patchPanelDevice).toHaveBeenCalledWith('p1', { fpsCap: 15 });
-    await waitFor(() => expect(trigger().textContent).toContain(HZ(15)));
+    const onSaved = vi.fn();
+    render(<FrameRateSetting recordId="p1" cap={null} onSaved={onSaved} />);
+    pick(HZ(60));
+    expect(api.patchPanelDevice).toHaveBeenCalledWith('p1', { fpsCap: 60 });
+    await waitFor(() => expect(trigger().textContent).toContain(HZ(60)));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('p1', 60));
     pick(OFF);
     expect(api.patchPanelDevice).toHaveBeenLastCalledWith('p1', { fpsCap: 0 });
+    await waitFor(() => expect(onSaved).toHaveBeenLastCalledWith('p1', null));
   });
 
   it('a failed save reverts to the confirmed value and toasts', async () => {

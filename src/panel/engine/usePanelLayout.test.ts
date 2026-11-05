@@ -40,6 +40,19 @@ function layout(widgets: PanelWidget[]): PanelLayout {
 }
 
 describe('normalizePanelLayout registry reconciliation', () => {
+  it('preserves six independent D215 circles and their configs alongside the retained single-widget layout', () => {
+    const circles = Array.from({ length: 6 }, (_, i) => ({ id: `circle-${i}`, type: i === 5 ? 'app:unavailable.round' : 'monitoring',
+      x: 0.25, y: 0.5, diameter: 0.4, config: { label: `sensor-${i}` } }));
+    const stored: PanelLayout = { ...layout([widget({ id: 'main', type: 'clock', size: '4x2' })]),
+      surface: 'lcd-wide', d215Panels: { enabled: true, items: circles } };
+    const normalized = normalizePanelLayout(stored, 'lcd-wide');
+    expect(normalized.pages[0].widgets).toHaveLength(1);
+    expect(normalized.pages[0].widgets[0].id).toBe('main');
+    expect(normalized.d215Panels).toBe(stored.d215Panels);
+    expect(normalized.d215Panels?.items).toHaveLength(6);
+    expect(normalizePanelLayout(normalized, 'lcd-wide')).toEqual(normalized);
+  });
+
   it('drops widgets whose type is not in the registry', () => {
     const result = normalizePanelLayout(
       layout([

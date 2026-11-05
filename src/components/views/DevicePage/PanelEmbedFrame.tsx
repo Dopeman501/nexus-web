@@ -17,6 +17,7 @@ import {
   type SimulatorTheme,
 } from '../../../panel/embed/simulatorProtocol';
 import type { ChromeGrid, PanelLayout, PanelSurface, PanelWidget } from '../../../panel/types';
+import { d215PanelWidget, readD215Panels } from '../../../panel/d215/d215Panels';
 import { simulatedPanelCssViewport } from '../../../panel/embed/simulatedPanelViewport';
 import { playlistTypeOfWidgetId, playlistWidget } from '../../../panel/engine/widgetPlaylist';
 import { useTranslation } from '../../../lib/i18n';
@@ -31,6 +32,8 @@ interface PanelEmbedFrameProps {
   /** SVG filter id applied to the frame, for 1-bit glass. */
   monoFilterId?: string;
   surface: PanelSurface;
+  deviceFamily?: string;
+  panelsEditing?: boolean;
   captureRef?: Ref<PanelEmbedFrameHandle>;
   layout: PanelLayout;
   theme: SimulatorTheme;
@@ -212,11 +215,14 @@ function findWidget(layout: PanelLayout, id: string): PanelWidget | undefined {
     const w = page.widgets.find(w => w.id === id);
     if (w) return w;
   }
-  return undefined;
+  const circle = readD215Panels(layout.d215Panels).items.find(item => item.id === id);
+  return circle ? d215PanelWidget(circle) : undefined;
 }
 
 export function PanelEmbedFrame({
   surface,
+  deviceFamily,
+  panelsEditing = false,
   captureRef,
   layout,
   theme,
@@ -382,6 +388,8 @@ export function PanelEmbedFrame({
     post({
       type: 'simulator/init',
       surface,
+      deviceFamily,
+      panelsEditing,
       deviceTouch,
       displayBound,
       genericDisplay,
@@ -404,6 +412,10 @@ export function PanelEmbedFrame({
     // reset the iframe's local UI state (open menus, in-flight motion).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [childReady]);
+
+  useEffect(() => {
+    if (childReady) post({ type: 'simulator/set-panels-editor', deviceFamily, panelsEditing });
+  }, [childReady, deviceFamily, panelsEditing, post]);
 
   // Mirror parent layout changes to the iframe, except when the structural
   // content matches what the iframe last emitted (the change is just the

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowLeft, Trash2, Upload, Sparkles, LayoutDashboard, Palette, Settings, Download, Unplug, Camera, Wallpaper, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Trash2, Upload, Sparkles, LayoutDashboard, Palette, Settings, Download, Unplug, Camera, Wallpaper, ExternalLink, PanelsTopLeft } from 'lucide-react';
 import { ViewHeader } from '../../common/ViewHeader/ViewHeader';
 import { SettingsSection } from '../../common/SettingsSection/SettingsSection';
+import { D215RotationSettings } from './D215RotationSettings';
 import { Notice } from '../../common/Notice/Notice';
 import { WidgetContextMenu } from '../../../panel/widgets/common/WidgetContextMenu';
 import { BackgroundQuickImport, type BackgroundQuickImportHandle } from '../../../panel/background/BackgroundQuickImport';
@@ -111,6 +112,8 @@ import { MonoPreviewFilter } from './MonoPreviewFilter';
 import { MONO_FILTER_ID, isMonoFamily, keepsSidePreview } from './monoPreview';
 import { PanelPresetToolbar } from './PanelPresetToolbar';
 import { D215BrightnessSettings } from './D215BrightnessSettings';
+import { D215PanelsEditor } from './D215PanelsEditor';
+import { readD215Panels, setD215PanelsEnabled } from '../../../panel/d215/d215Panels';
 import { FrameRateSetting } from './FrameRateSetting';
 import { showsFrameRateSetting } from './frameRateOptions';
 import { resolvePanelNativeCanvas } from '../../../panel/embed/panelNativeCanvas';
@@ -231,7 +234,7 @@ function toTouchRepairErrorStatus(status: string): TouchRepairErrorStatus {
 
 const WRITE_FAIL_TOAST_GAP_MS = 4000;
 
-type Tab = 'widgets' | 'theme' | 'background' | 'settings';
+type Tab = 'widgets' | 'panels' | 'theme' | 'background' | 'settings';
 
 type XeneonEdgeControlKey = 'brightness' | 'backlight' | 'contrast' | 'red' | 'green' | 'blue';
 
@@ -341,6 +344,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   // displays like the Xeneon Edge); null falls back to the surface default.
   const [liveDpi, setLiveDpi] = useState<number | null>(null);
   const [configuringWidgetId, setConfiguringWidgetId] = useState<string | null>(null);
+  const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
+  const d215Panels = useMemo(() => readD215Panels(layout.d215Panels), [layout.d215Panels]);
+  useEffect(() => { setSelectedPanelId(null); }, [device.id]);
   // Derived, never snapshotted: the on-device panel writes its own edits back
   // through the panel/device reverse sync below, so a copy of the widget goes
   // stale the moment its size or config changes anywhere but here. Resolving
@@ -413,7 +419,6 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const [recordMirror, setRecordMirror] = useState(false);
   const [recordPortrait, setRecordPortrait] = useState(false);
   const [recordSupportsPortrait, setRecordSupportsPortrait] = useState(false);
-  const [savingD215Portrait, setSavingD215Portrait] = useState(false);
   const [d215GlassSurface, setD215GlassSurface] = useState<ReturnType<typeof d215SurfaceOf>>();
   const latestD215Read = useRef(0);
   const [recordLcdBrightness, setRecordLcdBrightness] = useState(DEFAULT_LCD_BRIGHTNESS);
@@ -607,6 +612,11 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const [recordStreamed, setRecordStreamed] = useState(false);
   const [recordDisplayBound, setRecordDisplayBound] = useState(false);
   const [recordFpsCap, setRecordFpsCap] = useState<number | null>(null);
+  const frameCapRecordIdRef = useRef(device?.panelRecordId);
+  useLayoutEffect(() => {
+    frameCapRecordIdRef.current = device?.panelRecordId;
+    return () => { frameCapRecordIdRef.current = undefined; };
+  }, [device?.panelRecordId]);
   const hasFrameRateSetting = showsFrameRateSetting(recordStreamed, recordDisplayBound, isSimulated);
   const [recordSecondaryMonitorState, setRecordSecondaryMonitorState] =
     useState<PanelDeviceRecord['secondaryMonitorState']>(null);
@@ -680,7 +690,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     || isRenderScalablePanel
     || hasFrameRateSetting
     || isGlacialLcdPanel;
-  const activeTab: Tab = tab === 'settings' && !settingsAvailable ? 'widgets' : tab;
+  const activeTab: Tab = (tab === 'settings' && !settingsAvailable) || (tab === 'panels' && !isD215Panel) ? 'widgets' : tab;
   // Theme and layout read and write the panel record for simulators and hardware alike;
   // a simulator has no display or cooler, so its hardware controls are off.
   const panelRecord = usePanelRecord(editingDeviceId);
@@ -946,6 +956,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       setRecordSecondaryMonitorState(record.secondaryMonitorState ?? null);
       setRecordSecondaryMonitorHolder(record.secondaryMonitorHolder ?? null);
       setRecordPortrait(record.portrait ?? (d215Surface === 'lcd-portrait'));
+      if (d215Surface) setRecordFlip180(record.flip180 ?? false);
       setRecordHighResolution(record.highResolution ?? false);
       // A broadcast carries no maxFps (it is computed on the list), so only the cap follows it.
       setRecordFpsCap(record.fpsCap ?? null);
@@ -962,6 +973,12 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       setLayout(normalizePanelLayout(record.layout ?? defaultLayoutForSurface(synced.surface), synced.surface, synced.touch, synced.forcedGrid, !!record.displayId));
     }).catch(() => {});
   }, [editingDeviceId, deviceSurface, glassTouch, isD215Panel, layoutSurfaceOf]);
+
+  // Refresh saved D215 controls when reopening Settings even if a service
+  // broadcast was missed while its stream assignment was being replaced.
+  useEffect(() => {
+    if (activeTab === 'settings' && isD215Panel) refetchDeviceRecord();
+  }, [activeTab, isD215Panel, refetchDeviceRecord]);
 
   // Every broadcast-driven read goes through this. A write of ours in flight
   // must defer rather than apply, or the echo reverts a controlled field
@@ -990,19 +1007,8 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
 
   const changePanelPortrait = (portrait: boolean) => {
     const id = device?.panelRecordId;
-    if (!isD215Panel) {
-      setRecordPortrait(portrait);
-      if (id) void patchPanelDevice(id, { portrait }).catch(() => {});
-      return;
-    }
-    if (!id || savingD215Portrait) return;
-    setSavingD215Portrait(true);
-    void patchPanelDevice(id, { portrait }).then(record => {
-      // The setting is persisted before the renderer restarts. Its new
-      // capabilities and canvas arrive together on the record broadcast.
-      if (record) setRecordPortrait(record.portrait ?? portrait);
-      else reportWriteFailed();
-    }).catch(reportWriteFailed).finally(() => setSavingD215Portrait(false));
+    setRecordPortrait(portrait);
+    if (id) void patchPanelDevice(id, { portrait }).catch(() => {});
   };
 
   const writeRecordPatch = useCallback((id: string, patch: PanelDevicePatch) => {
@@ -1163,7 +1169,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     const type = stepPlaylistType(playingTypes, from, delta);
     if (type) updateLayout(updateWidgetPlaylist(layout, { cursor: { type, at: Date.now() } }));
   }, [layout, playingTypes, previewPlaylist, updateLayout]);
-  const showPlaylistArrows = playlistMode && !configuringWidget && playingTypes.length > 1;
+  const showPlaylistArrows = playlistMode && !configuringWidget && playingTypes.length > 1 && !(isD215Panel && d215Panels.enabled);
 
   // A playlist entry is edited as the shown widget: swapping to it restores
   // its remembered config, so the settings pane edits the entry in place.
@@ -1277,6 +1283,12 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   }, []);
 
   const handleConfigureWidget = useCallback((widget: PanelWidget) => {
+    if (isD215Panel && d215Panels.items.some(item => item.id === widget.id)) {
+      setSelectedPanelId(widget.id);
+      setConfiguringWidgetId(null);
+      setTab('panels');
+      return;
+    }
     // The preview shows a render-only stand-in for a playlist entry that is
     // not the stored widget.
     if (singleWidget && widget.id !== currentSingleWidget?.id) {
@@ -1284,7 +1296,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       return;
     }
     setConfiguringWidgetId(widget.id);
-  }, [currentSingleWidget?.id, editSingleWidgetType, singleWidget]);
+  }, [currentSingleWidget?.id, d215Panels.items, editSingleWidgetType, isD215Panel, singleWidget]);
 
   const handleUpdateWidgetConfig = useCallback((widgetId: string, config: Record<string, PanelConfigValue>) => {
     updateLayout(patchWidgetById(layout, widgetId, w => ({ ...w, config }), editorCapacity));
@@ -1506,6 +1518,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
 
   const tabs: { key: Tab; label: string; icon: ReactNode }[] = [
     { key: 'widgets', label: t('devices.y70.tab.widgets'), icon: <LayoutDashboard size={14} /> },
+    ...(isD215Panel ? [{ key: 'panels' as const, label: t('devices.jungle-leopard-d215.panels.title'), icon: <PanelsTopLeft size={14} /> }] : []),
     { key: 'theme', label: t('devices.y70.tab.theme'), icon: <Palette size={14} /> },
     { key: 'background', label: t('devices.y70.theme.background'), icon: <Wallpaper size={14} /> },
     ...(settingsAvailable
@@ -1618,7 +1631,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
         title={pageTitle}
         tabs={showFwGate || showDisconnected ? undefined : tabs}
         activeTab={activeTab}
-        onTabChange={(k) => { setConfiguringWidgetId(null); setTab(k as Tab); }}
+        onTabChange={(k) => { setConfiguringWidgetId(null); setSelectedPanelId(null); setTab(k as Tab); }}
         // Only where there is a panel to capture: the firmware-gate and
         // disconnected states render no embed frame, so the button could do
         // nothing but report an error.
@@ -1718,6 +1731,14 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                   {activeTab === 'widgets' && (
                     <>
                       <div className={styles.catalogHost}>
+                        {isD215Panel && d215Panels.enabled && (
+                          <Card compact className={styles.playlistPanel}>
+                            <p>{t('devices.jungle-leopard-d215.panels.widgetsHidden')}</p>
+                            <Button size="sm" onClick={() => updateLayout(setD215PanelsEnabled(layout, false))}>
+                              {t('devices.jungle-leopard-d215.panels.showWidgets')}
+                            </Button>
+                          </Card>
+                        )}
                         {widgetPlaylist && (
                           <Card compact className={styles.playlistPanel}>
                             {widgetPlaylist && (
@@ -1764,6 +1785,13 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                         />
                       </div>
                     </>
+                  )}
+                  {activeTab === 'panels' && isD215Panel && (
+                    <PanelGaugeGradientProvider value={gaugeGradientValue}>
+                      <D215PanelsEditor layout={layout} canvas={editorCanvas ?? { width: 1680, height: 756 }}
+                        selectedId={selectedPanelId} onSelect={setSelectedPanelId} onChange={updateLayout}
+                        themeStyle={panelPreviewThemeStyle} themeMode={desktopResolvedThemeMode} deviceId={editingDeviceId ?? undefined} />
+                    </PanelGaugeGradientProvider>
                   )}
                   {(activeTab === 'theme' || activeTab === 'background') && (() => {
                     // Aspect from live CSS viewport (DPR cancels); bake target =
@@ -2115,13 +2143,40 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                             }}
                           />
                         )}
-                        {hasFrameRateSetting && <FrameRateSetting recordId={device?.panelRecordId ?? null} cap={recordFpsCap} />}
+                        {hasFrameRateSetting && <FrameRateSetting
+                          key={device?.panelRecordId}
+                          recordId={device?.panelRecordId ?? null}
+                          cap={recordFpsCap}
+                          onSaved={isD215Panel ? (id, cap) => {
+                            if (frameCapRecordIdRef.current !== id) return;
+                            refetchDeviceRecord();
+                            setRecordFpsCap(cap);
+                          } : undefined}
+                        />}
                       </SettingsSection>
                     </div>
                   )}
                   {/* The iCUE LINK LCD rotates in firmware across all four quarter turns
                       (its own section below), so the software flip would double-apply. */}
-                  {activeTab === 'settings' && (supportsMountOrientation || recordSupportsPortrait)
+                  {activeTab === 'settings' && isD215Panel && (
+                    <div className={styles.settingsContent}>
+                      <D215RotationSettings
+                        key={device?.panelRecordId}
+                        recordId={device?.panelRecordId}
+                        portrait={recordPortrait}
+                        flip180={recordFlip180}
+                        onSaved={mount => {
+                          // Supersede pre-save reads and catch a geometry broadcast
+                          // that arrived while the setting was being persisted.
+                          refetchDeviceRecord();
+                          setRecordPortrait(mount.portrait);
+                          setRecordFlip180(mount.flip180);
+                        }}
+                        onSaveFailed={reportWriteFailed}
+                      />
+                    </div>
+                  )}
+                  {activeTab === 'settings' && !isD215Panel && (supportsMountOrientation || recordSupportsPortrait)
                     && !isSimulated && !isCorsairLinkLcdPanel && (
                     <div className={styles.settingsContent}>
                       <SettingsSection title={t('devices.lcd.mounting')} boxClassName={styles.deviceSettingsBox}>
@@ -2130,7 +2185,6 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                             label={t('devices.lcd.portrait')}
                             description={t('devices.lcd.portraitHint')}
                             checked={recordPortrait}
-                            disabled={isD215Panel && (savingD215Portrait || !device?.panelRecordId)}
                             onChange={changePanelPortrait}
                           />
                         )}
@@ -2351,17 +2405,19 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
               )}
               <PanelEmbedFrame
                 // The simulator takes its surface once, at init: a Widget size change remounts it.
-                key={surface}
+                key={isD215Panel ? `${editingDeviceId ?? device.id}:${surface}` : surface}
                 surface={surface}
                 captureRef={embedFrameRef}
+                deviceFamily={recordFamily ?? undefined}
+                panelsEditing={isD215Panel && activeTab === 'panels'}
                 layout={layout}
                 theme={theme}
                 themeMode={resolvedPanelThemeMode}
-                selectedWidgetId={configuringWidget?.id ?? null}
+                selectedWidgetId={selectedPanelId ?? configuringWidget?.id ?? null}
                 flashSignal={flashSignal}
                 onLayoutChange={updateLayout}
                 onWidgetClicked={handleConfigureWidget}
-                onBackgroundClicked={() => setConfiguringWidgetId(null)}
+                onBackgroundClicked={() => { setConfiguringWidgetId(null); setSelectedPanelId(null); }}
                 onBackgroundMenu={setBackgroundMenu}
                 onBackgroundCovered={setBackgroundCovered}
                 canvasSize={liveCanvas ?? device?.previewSize}

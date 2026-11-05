@@ -17,6 +17,8 @@ export interface SimulatorReadyMessage {
 export interface SimulatorInitMessage {
   type: 'simulator/init';
   surface: PanelSurface;
+  deviceFamily?: string;
+  panelsEditing?: boolean;
   // Per-device touch capability (promoted monitors). Undefined falls back to
   // the surface default in surfaceSupportsTouch; widget interactivity and the
   // immersive menu item follow it, while preview editing does not.
@@ -91,6 +93,12 @@ export interface SimulatorSetDisplayBoundMessage {
   genericDisplay?: boolean;
 }
 
+export interface SimulatorSetPanelsEditorMessage {
+  type: 'simulator/set-panels-editor';
+  deviceFamily?: string;
+  panelsEditing: boolean;
+}
+
 export interface SimulatorSetThemeMessage {
   type: 'simulator/set-theme';
   theme: SimulatorTheme;
@@ -150,6 +158,7 @@ export type SimulatorParentToChild =
   | SimulatorSetPreviewScaleMessage
   | SimulatorSetTouchMessage
   | SimulatorSetDisplayBoundMessage
+  | SimulatorSetPanelsEditorMessage
   | SimulatorSetThemeMessage
   | SimulatorSetSelectionMessage
   | SimulatorFlashWidgetMessage

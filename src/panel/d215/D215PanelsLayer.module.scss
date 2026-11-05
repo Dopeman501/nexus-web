@@ -1,0 +1,99 @@
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.item {
+  position: absolute;
+  // Each circle is a complete 2x2 widget design, independent of the outer
+  // portrait/wide grid. The content below scales that design once.
+  --panel-cell-size: 90px;
+  --panel-content-scale: 90px;
+  --panel-scale: 1;
+  --panel-span-cols: 2;
+  --panel-span-rows: 2;
+  --panel-gap: 10px;
+  --panel-widget-label-strip: 0px;
+  --panel-widget-card-margin-x: 0px;
+  --panel-widget-card-bottom-gap: 0px;
+  --panel-widget-card-inner-pad: 0px;
+  // The outer single-widget surface suppresses its full-screen card fill;
+  // these independent round cards keep the catalog's normal visible fill.
+  --panel-card-bg-opacity: 100%;
+  --panel-card-bg-alpha: 1;
+}
+
+.card {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.content {
+  display: flex;
+  flex-shrink: 0;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.layer[data-editing] .item {
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+
+  &:active { cursor: grabbing; }
+
+  &:focus-visible {
+    outline: calc(2px * var(--d215-edit-scale)) solid var(--accent);
+    outline-offset: calc(3px * var(--d215-edit-scale));
+  }
+
+  &[data-selected] { z-index: 1; }
+
+  &[data-selected]::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: calc(1px * var(--d215-edit-scale)) dashed var(--accent);
+    pointer-events: none;
+  }
+}
+
+.handle {
+  position: absolute;
+  z-index: 2;
+  width: calc(12px * var(--d215-edit-scale));
+  height: calc(12px * var(--d215-edit-scale));
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: calc(2px * var(--d215-edit-scale)) solid var(--accent);
+  border-radius: calc(3px * var(--d215-edit-scale));
+  background: var(--bg, #111);
+  pointer-events: auto;
+  touch-action: none;
+
+  &[data-corner='nw'] { left: 0; top: 0; cursor: nwse-resize; }
+  &[data-corner='ne'] { right: 0; top: 0; cursor: nesw-resize; }
+  &[data-corner='sw'] { left: 0; bottom: 0; cursor: nesw-resize; }
+  &[data-corner='se'] { right: 0; bottom: 0; cursor: nwse-resize; }
+
+  &:focus-visible { outline: calc(2px * var(--d215-edit-scale)) solid var(--text); }
+}
+
+.verticalGuide,
+.horizontalGuide {
+  position: absolute;
+  z-index: 3;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.verticalGuide { top: 0; bottom: 0; width: calc(1px * var(--d215-edit-scale)); }
+.horizontalGuide { left: 0; right: 0; height: calc(1px * var(--d215-edit-scale)); }

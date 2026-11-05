@@ -1,4 +1,5 @@
 import { panelHostAvailable } from './device/panelHostBridge';
+import type { D215PanelsState } from './d215/d215PanelTypes';
 
 // Canonical shape for the panel widget engine. Mirrors
 // nexus-service/Models/Panel/PanelLayoutDto.cs. Keep in sync.
@@ -534,6 +535,8 @@ export interface PanelLayout {
   surface: PanelSurface;
   pages: PanelPage[];
   activePageId?: string;
+  /** D215's independent circular composition; ordinary Widgets remain intact. */
+  d215Panels?: D215PanelsState;
   // Single-widget surfaces (Q-series) show one widget at a time; swapping which
   // widget is shown would otherwise discard the outgoing one's config. This
   // remembers each widget type's last config so switching back restores it.

@@ -228,6 +228,29 @@ describe('PanelDevicePage D215 brightness', () => {
     expect(patchPanelDeviceMock).not.toHaveBeenCalled();
   });
 
+  it.each([20, 40, 60, 80, 100])('sets preset %i after confirmed hardware readback', async value => {
+    readBrightness.mockResolvedValue({ status: 'confirmed', value: value === 100 ? 80 : 100 });
+    let complete!: (result: unknown) => void;
+    vi.mocked(postService).mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+    render(<PanelDevicePage device={d215} />);
+    await openSettingsTab();
+    await waitFor(() => expect(preset(value)).toBeEnabled());
+    expect(screen.getAllByRole('button', { name: /^(20|40|60|80|100)%$/ }).map(button => button.textContent))
+      .toEqual(['20%', '40%', '60%', '80%', '100%']);
+
+    fireEvent.click(preset(value));
+    expect(postService).toHaveBeenCalledWith(path, { value }, expect.any(AbortSignal));
+    for (const level of [20, 40, 60, 80, 100]) expect(preset(level)).toBeDisabled();
+    expect(preset(value)).toHaveAttribute('aria-pressed', 'false');
+    await act(async () => { complete({ status: 'confirmed', value }); });
+
+    expect(screen.getByRole('status')).toHaveTextContent(`${value}%`);
+    expect(preset(value)).toHaveAttribute('aria-pressed', 'true');
+    expect(preset(value)).toBeDisabled();
+    expect(preset(value === 100 ? 80 : 100)).toBeEnabled();
+    expect(patchPanelDeviceMock).not.toHaveBeenCalled();
+  });
+
   it('waits for hardware readback and preserves the reported value on mismatch', async () => {
     readBrightness.mockResolvedValue({ status: 'confirmed', value: 80 });
     let complete!: (result: unknown) => void;

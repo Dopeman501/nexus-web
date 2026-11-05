@@ -140,6 +140,33 @@ afterEach(() => {
 });
 
 describe('kiosk layout write-back', () => {
+  it.each([
+    ['jungle-leopard-d215', true, 6],
+    ['jungle-leopard-d215', false, 0],
+    ['other-wide-lcd', true, 0],
+  ] as const)('renders the saved circle mode only for %s with enabled=%s', async (family, enabled, count) => {
+    setViewport(1680, 756);
+    const circles = Array.from({ length: 6 }, (_, index) => ({ id: `circle-${index}`, type: 'clock',
+      x: ((index % 3) + 0.5) / 3, y: (Math.floor(index / 3) + 0.5) / 2, diameter: 0.4,
+      config: { showSeconds: index === 0 } }));
+    const stored: PanelLayout = { layoutSchemaVersion: 2, surface: 'lcd-wide',
+      pages: [{ id: 'main-page', widgets: [widget('main', 'clock', '4x2', 0)] }],
+      d215Panels: { enabled, items: circles } };
+    fetchMock.mockResolvedValue({ found: true, record: { ...recordWith(stored), capabilities: {
+      surface: 'lcd-wide', family, touch: false, cssWidth: 1680, cssHeight: 756, dpr: 1,
+    } } });
+    await mountKiosk();
+    expect(document.querySelectorAll('[data-d215-panel-id]')).toHaveLength(count);
+    expect(document.querySelector('[data-panel-widget-id="main"]') !== null).toBe(count === 0);
+    for (const circle of document.querySelectorAll<HTMLElement>('[data-d215-panel-id]')) {
+      expect(circle.style.width).toBe(circle.style.height);
+      expect(circle.querySelector('[data-size="2x2round"]')).not.toBeNull();
+      expect(circle.querySelector('button')).toBeNull();
+    }
+    expect(patchMock).not.toHaveBeenCalled();
+    expect(stored.d215Panels?.items).toHaveLength(6);
+  });
+
   it('never writes a capacity-driven repagination back to the record (landscape Y70 kiosk)', async () => {
     // A display-topology reshuffle briefly hands the Y70 kiosk a 3840x1100
     // window (nexus-overlay: "panel kiosk monitor bounds changed ->

@@ -13,6 +13,9 @@ import { PanelDigitizerProvider, PanelDisplayBoundProvider, PanelGenericDisplayP
 import { usePanelFpsCap } from './engine/usePanelFpsCap';
 import { INERT_PANEL_RECORD, usePanelRecord, type PanelRecordState } from './engine/usePanelRecord';
 import { usePanelLayout } from './engine/usePanelLayout';
+import { JUNGLE_LEOPARD_D215_FAMILY } from './types';
+import { D215PanelsLayer } from './d215/D215PanelsLayer';
+import { readD215Panels } from './d215/d215Panels';
 import { useOemAppSeed } from './engine/useOemAppSeed';
 import { useAppsChangedSync } from './engine/useAppsChangedSync';
 import { useFlashWidgets } from './engine/useFlashWidgets';
@@ -476,6 +479,8 @@ function PanelKioskContent({ recordState, deviceId, surface, glassSurface, devic
 export function PanelContent({
   recordState = INERT_PANEL_RECORD,
   surface,
+  deviceFamily,
+  panelsEditing = false,
   glassSurface = surface,
   deviceId,
   deviceTouch,
@@ -503,6 +508,8 @@ export function PanelContent({
   onSectionNavigate,
 }: {
   surface: PanelSurface;
+  deviceFamily?: string;
+  panelsEditing?: boolean;
   // The physical glass when Widget size lays it out as another surface.
   glassSurface?: PanelSurface;
   deviceId?: string;
@@ -559,6 +566,9 @@ export function PanelContent({
   useTopic('panel/phone/presence', kioskBehavior && surface === 'phone');
   usePhonePanelManifest(kioskBehavior && surface === 'phone');
   const { layout: fullLayout, loaded, saveForbidden, hydrated, setLayout: setFullLayout } = layoutState;
+  const d215Panels = useMemo(() => readD215Panels(fullLayout.d215Panels), [fullLayout.d215Panels]);
+  const showD215Panels = (deviceFamily ?? recordState.record?.capabilities?.family) === JUNGLE_LEOPARD_D215_FAMILY
+    && (surface === 'lcd-wide' || surface === 'lcd-portrait') && d215Panels.enabled;
   const genericDisplay = genericDisplayOverride ?? isGenericDisplayPanel(glassSurface, recordState.record?.capabilities?.family, displayBound);
   // A mouse-only generic display renders its first page only; later stored pages are written back untouched.
   const genericOnePage = genericSinglePage(genericDisplay, surface, deviceTouch);
@@ -1290,7 +1300,7 @@ export function PanelContent({
   // An opaque tile filling a single-widget panel hides the background, so it
   // stops animating.
   const shownSingleWidget = isSingleWidgetSurface(surface) ? allFiltered[0]?.widgets[0] : undefined;
-  const backgroundCovered = shownSingleWidget !== undefined && opaqueWidgetIds.has(shownSingleWidget.id) && !immersiveSeeThrough;
+  const backgroundCovered = !showD215Panels && shownSingleWidget !== undefined && opaqueWidgetIds.has(shownSingleWidget.id) && !immersiveSeeThrough;
   useEffect(() => {
     if (simulator) onSimulatorBackgroundCovered?.(backgroundCovered);
   }, [simulator, backgroundCovered, onSimulatorBackgroundCovered]);
@@ -2435,6 +2445,14 @@ export function PanelContent({
           <PanelLoadingGate surface={surface} />
         ) : (
           <>
+            {showD215Panels ? (
+              <div className={styles.panelStage}>
+                <D215PanelsLayer panels={d215Panels}
+                  deviceId={deviceId} editing={simulator && panelsEditing && !restricted} selectedId={simulatorSelectedWidgetId}
+                  previewScale={simulatorPreviewScale} onSelect={onSimulatorWidgetClicked}
+                  onChange={next => setFullLayout({ ...fullLayout, d215Panels: next })} />
+              </div>
+            ) : (
             <div className={styles.panelStage}>
               <div className={styles.panelStagePages}>
                 <PanelOpaqueProvider value={reportOpaque}>
@@ -2581,6 +2599,7 @@ export function PanelContent({
                 )}
               </div>
             </div>
+            )}
             {kioskBehavior && (surfaceSupportsTouch(surface, deviceTouch) || mouseEditable) && (
               <PanelActionsTray
                 open={trayOpen}

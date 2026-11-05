@@ -10,6 +10,8 @@ interface Props {
   recordId: string | null;
   /** The stored cap; null = Off. */
   cap: number | null;
+  /** Report the newest confirmed save to the record owner, including late tab-close results. */
+  onSaved?: (recordId: string, cap: number | null) => void;
 }
 
 /**
@@ -17,7 +19,7 @@ interface Props {
  * select back on the newest successful save. A value arriving from the parent while a save
  * is in flight (an older save's broadcast) never overwrites a newer pick.
  */
-export function FrameRateSetting({ recordId, cap }: Props) {
+export function FrameRateSetting({ recordId, cap, onSaved }: Props) {
   const { t } = useTranslation();
   const { push } = useToastSafe();
   const [current, setCurrent] = useState<number | null>(cap);
@@ -40,13 +42,14 @@ export function FrameRateSetting({ recordId, cap }: Props) {
     const mine = ++seq.current;
     pending.current += 1;
     setCurrent(next);
-    const settle = (ok: boolean) => {
+    const settle = (ok: boolean, savedCap = next) => {
       pending.current -= 1;
       if (ok) {
         // The service holds the newest successful save, even when a later pick failed.
         if (mine > confirmedSeq.current) {
-          confirmed.current = next;
+          confirmed.current = savedCap;
           confirmedSeq.current = mine;
+          onSaved?.(recordId, savedCap);
         }
         // The newest pick already failed and rolled back; follow the older save that landed after it.
         if (failedSeq.current === seq.current) setCurrent(confirmed.current);
@@ -57,7 +60,10 @@ export function FrameRateSetting({ recordId, cap }: Props) {
       setCurrent(confirmed.current);
       push({ title: t('lighting.ledMap.rateCapFailed') });
     };
-    patchPanelDevice(recordId, { fpsCap: sent }).then(r => settle(!!r), () => settle(false));
+    patchPanelDevice(recordId, { fpsCap: sent }).then(
+      r => settle(!!r, r?.fpsCap === undefined ? next : r.fpsCap),
+      () => settle(false),
+    );
   };
 
   return (

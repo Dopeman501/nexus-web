@@ -20,6 +20,8 @@ interface PanelLayoutState {
 export interface SimulatorRuntimeState {
   ready: boolean;
   surface: PanelSurface;
+  deviceFamily: string | undefined;
+  panelsEditing: boolean;
   // Per-device touch capability (see SimulatorInitMessage.deviceTouch).
   deviceTouch: boolean | undefined;
   // CSS-px density from 'simulator/init' (see SimulatorInitMessage.dpi).
@@ -75,6 +77,8 @@ function sanitizePreviewScale(value: number | undefined): number | null {
 export function useSimulatorLayoutState(): SimulatorRuntimeState {
   const [ready, setReady] = useState(false);
   const [surface, setSurface] = useState<PanelSurface>('y70');
+  const [deviceFamily, setDeviceFamily] = useState<string | undefined>(undefined);
+  const [panelsEditing, setPanelsEditing] = useState(false);
   const [deviceTouch, setDeviceTouch] = useState<boolean | undefined>(undefined);
   const [dpi, setDpi] = useState<number | undefined>(undefined);
   const [shortSideSlots, setShortSideSlots] = useState<number | undefined>(undefined);
@@ -99,6 +103,8 @@ export function useSimulatorLayoutState(): SimulatorRuntimeState {
       if (!isSimulatorMessage(data)) return;
       switch (data.type) {
         case 'simulator/init': {
+          setDeviceFamily(typeof data.deviceFamily === 'string' ? data.deviceFamily : undefined);
+          setPanelsEditing(data.panelsEditing === true);
           setSurface(data.surface);
           setDeviceTouch(data.deviceTouch);
           setDpi(data.dpi);
@@ -120,6 +126,11 @@ export function useSimulatorLayoutState(): SimulatorRuntimeState {
         }
         case 'simulator/set-layout': {
           setLayoutLocal(data.layout);
+          break;
+        }
+        case 'simulator/set-panels-editor': {
+          setDeviceFamily(typeof data.deviceFamily === 'string' ? data.deviceFamily : undefined);
+          setPanelsEditing(data.panelsEditing === true);
           break;
         }
         case 'simulator/set-grid': {
@@ -205,6 +216,8 @@ export function useSimulatorLayoutState(): SimulatorRuntimeState {
   return {
     ready,
     surface,
+    deviceFamily,
+    panelsEditing,
     deviceTouch,
     dpi,
     shortSideSlots,
