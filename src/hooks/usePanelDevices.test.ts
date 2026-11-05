@@ -70,6 +70,35 @@ describe('buildPanelDevices USB device secondary monitor', () => {
   });
 });
 
+describe('buildPanelDevices D215 portrait panel', () => {
+  const family = 'jungle-leopard-d215';
+  const handler = { id: family, name: 'Jungle Leopard D215', category: 'display', connected: true, firmwareVersion: '3.4' };
+  const record: PanelDeviceRecord = {
+    id: 'portrait', displayName: 'Portrait LCD', firstSeenAt: 0, lastSeenAt: 1, streamed: true,
+    capabilities: { surface: 'lcd-portrait', family, cssWidth: 756, cssHeight: 1680, dpr: 1 },
+  };
+
+  it('claims its handler row and keeps the fixed native preview dimensions', () => {
+    const devices = buildPanelDevices({
+      curatedDevices: [handler], phoneSessions: [], records: [record], status: null, simulatedPanels: [], labels: LABELS,
+    });
+    expect(devices).toHaveLength(1);
+    expect(devices[0]).toMatchObject({
+      sourceId: family, runtimeSurface: 'lcd-portrait', panelRecordId: 'portrait',
+      previewSize: { width: 756, height: 1680 }, previewDpr: 1, modalKind: 'panel-editor',
+      capabilities: { touch: false, displayControls: false },
+    });
+  });
+
+  it('drops a lingering stream record after the D215 handler reports detach', () => {
+    const devices = buildPanelDevices({
+      curatedDevices: [{ ...handler, connected: false }], phoneSessions: [], records: [record],
+      status: null, simulatedPanels: [], labels: LABELS,
+    });
+    expect(devices).toEqual([]);
+  });
+});
+
 describe('buildPanelDevices promoted-monitor branding', () => {
   it('replaces the Windows PnP-identity default name with the family name', () => {
     const device = firstDevice(xeneonRecord('CRX ED00'));

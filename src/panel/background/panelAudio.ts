@@ -5,7 +5,7 @@ import { isQSeriesViewport } from '../device/inferSurface';
 // Displays this PC renders and drives itself. Q-series is left out for latency;
 // every surface not listed here counts as remote.
 const AUDIO_REACTIVE_SURFACES: ReadonlySet<PanelSurface> = new Set<PanelSurface>([
-  'lcd-round', 'lcd-square', 'lcd-wide', 'monitor', 'y70',
+  'lcd-round', 'lcd-square', 'lcd-wide', 'lcd-portrait', 'monitor', 'y70',
 ]);
 
 // 'y70' is inferred from viewport aspect, so surface alone cannot prove the

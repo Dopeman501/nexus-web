@@ -35,6 +35,7 @@ export const SURFACE_DPR: Record<string, number> = {
   'lcd-round': 1,
   'lcd-square': 1,
   'lcd-wide': 1,
+  'lcd-portrait': 1,
 };
 
 export interface SimulatedPanelCssViewport {

@@ -502,10 +502,11 @@
   overscroll-behavior: auto;
 }
 
-.panelRoot[data-surface='q60'] {
+.panelRoot[data-surface='q60'],
+.panelRoot[data-surface='lcd-portrait'] {
   --panel-columns: 2;
   --panel-rows: 4;
-  // Fully edge-to-edge: the Q60 is a single-widget immersive surface, so any
+  // Fully edge-to-edge on portrait single-widget glass, since any
   // gap, page padding or card margin reads as a border. Zero the gap and all
   // four sides + the card margin so the widget fills the entire screen. The
   // row-size + cell-size calcs below drop the padding terms to match (no
@@ -528,12 +529,14 @@
   overflow: hidden;
 }
 
-.panelRoot[data-surface='q60'] .panelScroller {
+.panelRoot[data-surface='q60'] .panelScroller,
+.panelRoot[data-surface='lcd-portrait'] .panelScroller {
   min-height: 0;
   height: 100%;
 }
 
-.panelRoot[data-surface='q60'] .grid {
+.panelRoot[data-surface='q60'] .grid,
+.panelRoot[data-surface='lcd-portrait'] .grid {
   // Fill the page height, rows split it equally (`1fr` each). Height flows
   // from the surface root, sized with 100vh - NOT 100dvh. The Q60 ships
   // Android System WebView v83 (Chrome 83); dynamic-viewport units
@@ -545,7 +548,8 @@
   grid-auto-rows: 1fr;
 }
 
-.panelRoot[data-surface='q60'] .panelActions {
+.panelRoot[data-surface='q60'] .panelActions,
+.panelRoot[data-surface='lcd-portrait'] .panelActions {
   display: none;
 }
 
@@ -573,7 +577,8 @@
 // row) collapses --_content to the short axis, leaving a ~33px gap that reads
 // as a border. Size the content box per-axis from the real cell dims so it
 // fills the card.
-.panelRoot[data-surface='q60'] .cellScaler {
+.panelRoot[data-surface='q60'] .cellScaler,
+.panelRoot[data-surface='lcd-portrait'] .cellScaler {
   --_grid-w: calc(var(--_cols) * var(--panel-cell-size) + (var(--_cols) - 1) * var(--_gap));
   --_grid-h: calc(var(--_rows) * var(--panel-row-size) + (var(--_rows) - 1) * var(--_gap));
 }

@@ -46,6 +46,7 @@ import { isLianLiHubId } from '../../../api/lianli';
 import { useTranslation } from '../../../lib/i18n';
 import type { ConnectionState } from '../../../hooks/useServiceStatus';
 import { DeviceDetectingContext, useReportDeviceWaiting } from './deviceDetecting';
+import { JUNGLE_LEOPARD_D215_FAMILY } from '../../../panel/types';
 import styles from './DevicePage.module.scss';
 
 /**
@@ -237,14 +238,14 @@ function DeviceBody({ device, controlDevice, platform, onOpenFirmware, onSection
   }
 
   if (device.kind === 'panel' && device.panelDevice) {
-    // `key` forces unmount + remount when navigating between panel device
-    // pages (e.g. Q60 → Y70). Without it React reuses the same
+    // Key by the panel, since the D215 route stays stable when its record changes.
+    // Without it React reuses the same
     // PanelDevicePage and PanelEmbedFrame keeps its ResizeObserver-derived
     // `measured` state, post-handshake iframe content, and canvasW/H from
     // the previous device, so the new page paints at the old device's
     // scale until the tree is torn down. Remounting rebuilds the iframe
     // against the new device's canvas/DPR.
-    return <PanelDevicePage key={device.key} device={device.panelDevice} platform={platform} onOpenFirmware={onOpenFirmware} onSectionNavigate={onSectionNavigate} />;
+    return <PanelDevicePage key={device.panelDevice.id} device={device.panelDevice} platform={platform} onOpenFirmware={onOpenFirmware} onSectionNavigate={onSectionNavigate} />;
   }
 
   if (device.curatedId === 'keeb') {
@@ -334,14 +335,17 @@ function DeviceBody({ device, controlDevice, platform, onOpenFirmware, onSection
     );
   }
 
-  return <PanelNotConnected name={device.shortName} deviceKey={device.key} warning={device.warning} />;
+  return <PanelNotConnected name={device.shortName} deviceKey={device.key} warning={device.warning}
+    connectionIssue={device.curatedId === JUNGLE_LEOPARD_D215_FAMILY ? device.warning : undefined} />;
 }
 
 /** A screen whose page is its panel (a cooler LCD, a Q-series), before that panel connects. */
-function PanelNotConnected({ name, deviceKey, warning }: { name: string; deviceKey: string; warning?: string }) {
+function PanelNotConnected({ name, deviceKey, warning, connectionIssue }: {
+  name: string; deviceKey: string; warning?: string; connectionIssue?: string;
+}) {
   const { t } = useTranslation();
   // Access denied is a settled state with its own notice, so it never holds the detecting screen.
-  useReportDeviceWaiting(warning !== 'access-denied');
+  useReportDeviceWaiting(warning !== 'access-denied' && !connectionIssue);
   // Unmounts when the panel row claims the key, which ends the detecting hold.
   const report = useContext(DeviceDetectingContext);
   useEffect(() => () => report?.(false), [report]);
@@ -353,7 +357,7 @@ function PanelNotConnected({ name, deviceKey, warning }: { name: string; deviceK
     <div className={styles.page}>
       <ViewHeader title={name} />
       <div className={`${styles.pageBody} pageBody`}>
-        <EmptyState icon={<Unplug size={40} />} title={t('devices.page.notConnected')} />
+        <EmptyState icon={<Unplug size={40} />} title={connectionIssue ?? t('devices.page.notConnected')} />
       </div>
     </div>
   );

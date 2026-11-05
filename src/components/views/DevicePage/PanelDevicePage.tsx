@@ -58,7 +58,7 @@ import {
   isImmersiveOnLoadWidget,
   setImmersiveOnLoadWidgetId,
 } from '../../../panel/engine/immersiveOnLoad';
-import { largeChromeGrid, previewChromeGrid, forcedGridOf, isSingleWidgetSurface, PANEL_WIDGET_SIZE_MODES, panelLayoutDpi, panelLayoutSurface, panelShortSideSlots, panelWidgetSizeOptions, resolvePanelWidgetSize, singleWidgetSurfaceSize, surfaceAllowsPages, isGenericDisplayPanel, genericSinglePage, surfaceSupportsMountOrientation, surfaceDisplayShape, surfaceSupportsTouch, widgetSizeShortSideSlots, type ForcedGrid, type PanelWidgetSizeMode } from '../../../panel/types';
+import { JUNGLE_LEOPARD_D215_FAMILY, largeChromeGrid, previewChromeGrid, forcedGridOf, isSingleWidgetSurface, PANEL_WIDGET_SIZE_MODES, panelLayoutDpi, panelLayoutSurface, panelShortSideSlots, panelWidgetSizeOptions, resolvePanelWidgetSize, singleWidgetSurfaceSize, surfaceAllowsPages, isGenericDisplayPanel, genericSinglePage, surfaceSupportsMountOrientation, surfaceDisplayShape, surfaceSupportsTouch, widgetSizeShortSideSlots, type ForcedGrid, type PanelWidgetSizeMode } from '../../../panel/types';
 import { supportsDesktopWallpaper } from '../../../panel/device/wiredPanel';
 import { fetchService, postService } from '../../../api/service';
 import {
@@ -110,6 +110,7 @@ import { PanelEmbedFrame, type PanelEmbedFrameHandle } from './PanelEmbedFrame';
 import { MonoPreviewFilter } from './MonoPreviewFilter';
 import { MONO_FILTER_ID, isMonoFamily, keepsSidePreview } from './monoPreview';
 import { PanelPresetToolbar } from './PanelPresetToolbar';
+import { D215BrightnessSettings } from './D215BrightnessSettings';
 import { FrameRateSetting } from './FrameRateSetting';
 import { showsFrameRateSetting } from './frameRateOptions';
 import { resolvePanelNativeCanvas } from '../../../panel/embed/panelNativeCanvas';
@@ -300,6 +301,13 @@ function matchPanelRecord(
     : records?.find(d => d.capabilities?.surface === surface && !d.displayId);
 }
 
+function d215SurfaceOf(record: PanelDeviceRecord | null | undefined): 'lcd-portrait' | 'lcd-wide' | undefined {
+  const capabilities = record?.capabilities;
+  if (capabilities?.family !== JUNGLE_LEOPARD_D215_FAMILY) return undefined;
+  const { surface } = capabilities;
+  return surface === 'lcd-portrait' || surface === 'lcd-wide' ? surface : undefined;
+}
+
 export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSectionNavigate }: PanelDevicePageProps) {
   const { t, language } = useTranslation();
   // A simulated Q60 has no cooler or panel behind it, so no /qseries hardware read or write may fire for it.
@@ -405,6 +413,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const [recordMirror, setRecordMirror] = useState(false);
   const [recordPortrait, setRecordPortrait] = useState(false);
   const [recordSupportsPortrait, setRecordSupportsPortrait] = useState(false);
+  const [savingD215Portrait, setSavingD215Portrait] = useState(false);
+  const [d215GlassSurface, setD215GlassSurface] = useState<ReturnType<typeof d215SurfaceOf>>();
+  const latestD215Read = useRef(0);
   const [recordLcdBrightness, setRecordLcdBrightness] = useState(DEFAULT_LCD_BRIGHTNESS);
   const [recordTouch, setRecordTouch] = useState<boolean | undefined>(undefined);
   // Curated display family (capabilities.family, e.g. 'xeneon-edge') off the
@@ -418,7 +429,8 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const [widgetSizeDraft, setWidgetSizeDraft] = useState<PanelWidgetSizeMode | null>(null);
   // The glass drives hardware settings and record matching; `surface` is the one whose
   // layout rules the panel follows, which Widget size can swap.
-  const glassSurface = device?.runtimeSurface ?? 'y70';
+  const deviceSurface = device?.runtimeSurface ?? 'y70';
+  const glassSurface = d215GlassSurface ?? deviceSurface;
   const surface = panelLayoutSurface(glassSurface, recordFamily, recordWidgetSize);
   const widgetSizeOptions = panelWidgetSizeOptions(glassSurface, recordFamily);
   const widgetSizeMode = resolvePanelWidgetSize(glassSurface, recordFamily, recordWidgetSize);
@@ -487,6 +499,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const layoutSurfaceOf = useCallback((record: PanelDeviceRecord | null | undefined, touch: boolean | undefined) => {
     const caps = record?.capabilities;
     const family = caps?.family ?? device?.family;
+    const glassSurface = d215SurfaceOf(record) ?? deviceSurface;
     const sizeOf = recordWidgetSizeOf(record, glassSurface);
     const laidOut = panelLayoutSurface(glassSurface, family, sizeOf);
     // Same canvas the editor grid reads: the record's own, else the device entry's.
@@ -505,7 +518,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
         isLandscapeCanvas(canvas),
       ),
     };
-  }, [glassSurface, device?.family, device?.previewSize, device?.previewDpi, device?.previewDpr]);
+  }, [deviceSurface, device?.family, device?.previewSize, device?.previewDpi, device?.previewDpr]);
   // Promoted monitors with a DDC/CI-capable display get a brightness-only
   // settings tab wired to the generic /displays brightness endpoint.
   const [ddcBrightness, setDdcBrightness] = useState<number | null>(null);
@@ -565,7 +578,8 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   // The record's family arrives after the first paint; the streamed row claims the cooler's
   // device id, which is known at once, so the Kraken's tab never waits on the record.
   const isKrakenPanel = recordFamily === NZXT_KRAKEN_FAMILY || device?.sourceId === NZXT_KRAKEN_FAMILY;
-  const supportsMountOrientation = surfaceSupportsMountOrientation(glassSurface, recordFamily) && !isKrakenPanel;
+  const isD215Panel = !isSimulated && recordFamily === JUNGLE_LEOPARD_D215_FAMILY;
+  const supportsMountOrientation = !isD215Panel && surfaceSupportsMountOrientation(glassSurface, recordFamily) && !isKrakenPanel;
   // The iCUE LINK cooler's LCD: its screen module's own controls live in this tab, the
   // way the Kraken's cooler does. Other 'lcd-round' panels have no control channel.
   const isCorsairLinkLcdPanel = recordFamily === 'corsair-link-lcd' && !isSimulated;
@@ -578,7 +592,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   // model needs no edit here. The setting lives on the record, so it rides the
   // same PATCH as the mounting toggles below rather than its own endpoint.
   const [recordSupportsBrightness, setRecordSupportsBrightness] = useState(false);
-  const isDimmableLcdPanel = recordSupportsBrightness && !isSimulated;
+  const isDimmableLcdPanel = recordSupportsBrightness && !isSimulated && !isD215Panel;
   // Streamed cooler LCDs (e.g. the Aftershock Glacier Matrix) whose driver can
   // hand the screen to Windows as a virtual monitor. While on, the service
   // streams the desktop instead of Nexus content and the Widgets/Theme/
@@ -661,6 +675,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     // A dimmable panel earns the tab on its own, so the capability does not
     // depend on the surface also being mount-orientable.
     || isDimmableLcdPanel
+    || isD215Panel
     || isSecondaryMonitorCapablePanel
     || isRenderScalablePanel
     || hasFrameRateSetting
@@ -736,7 +751,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       }
       // /y70/toggle returns the persisted ScreenOff value, not "screen on".
       if (tog) setScreenOn(!tog.toggle);
-      const match = matchPanelRecord(devices?.devices, boundRecordId(), glassSurface, isSimulated);
+      const match = matchPanelRecord(devices?.devices, boundRecordId(), deviceSurface, isSimulated);
+      const d215Surface = d215SurfaceOf(match);
+      setD215GlassSurface(d215Surface);
       setEditingDeviceId(match?.id ?? null);
       const canvas = recordCanvasOf(match);
       setLiveCanvas(canvas ? { width: canvas.width, height: canvas.height } : null);
@@ -751,7 +768,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       setRecordRestricted(match?.restrictedMode ?? false);
       setRecordFlip180(match?.flip180 ?? false);
       setRecordMirror(match?.mirror ?? false);
-      setRecordPortrait(match?.portrait ?? false);
+      setRecordPortrait(match?.portrait ?? (d215Surface === 'lcd-portrait'));
       setRecordSupportsPortrait(match?.capabilities?.supportsPortrait ?? false);
       setRecordLcdBrightness(match?.lcdBrightness ?? DEFAULT_LCD_BRIGHTNESS);
       setRecordSleepWhenLocked(match?.sleepWhenLocked ?? true);
@@ -766,7 +783,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       setRecordDisplayBound(!!match?.displayId);
       setRecordFpsCap(match?.fpsCap ?? null);
       setMatchedFamily(match?.capabilities?.family);
-      setRecordWidgetSize(recordWidgetSizeOf(match, glassSurface) ?? null);
+      setRecordWidgetSize(recordWidgetSizeOf(match, d215Surface ?? deviceSurface) ?? null);
       if (match?.capabilities?.orientation) setOrientation(normalizeOrientation(match.capabilities.orientation));
       setRecordTouch(match?.capabilities?.touch);
       const loaded = layoutSurfaceOf(match, match?.capabilities?.touch ?? device?.capabilities.touch);
@@ -783,7 +800,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       if (!isXeneonEdgePanel) setResettingHardware(false);
     }).catch(() => { if (!cancelled) { setLoaded(true); setResettingHardware(false); } });
     return () => { cancelled = true; };
-  }, [glassSurface, layoutSurfaceOf, supportsDisplayControls, isQSeries, isXeneonEdgePanel, boundRecordId, isSimulated, device?.capabilities.touch, settingsRefreshNonce]);
+  }, [deviceSurface, layoutSurfaceOf, supportsDisplayControls, isQSeries, isXeneonEdgePanel, boundRecordId, isSimulated, device?.capabilities.touch, settingsRefreshNonce]);
 
   const pushBrightness = (value: number) => {
     setBrightness(value);
@@ -908,8 +925,11 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     if (!editingDeviceId) return;
     // Ignore a result a newer local write overtook while it was in flight.
     const seq = writeSeqRef.current;
+    const d215Read = ++latestD215Read.current;
     fetchPanelDevice(editingDeviceId).then(record => {
-      if (!record) return;
+      if (!record || (isD215Panel && d215Read !== latestD215Read.current)) return;
+      const d215Surface = d215SurfaceOf(record);
+      setD215GlassSurface(d215Surface);
       const canvas = recordCanvasOf(record);
       setLiveCanvas(canvas ? { width: canvas.width, height: canvas.height } : null);
       setLiveDpr(canvas?.dpr ?? null);
@@ -925,7 +945,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       setRecordSecondaryMonitor(record.secondaryMonitor ?? false);
       setRecordSecondaryMonitorState(record.secondaryMonitorState ?? null);
       setRecordSecondaryMonitorHolder(record.secondaryMonitorHolder ?? null);
-      setRecordPortrait(record.portrait ?? false);
+      setRecordPortrait(record.portrait ?? (d215Surface === 'lcd-portrait'));
       setRecordHighResolution(record.highResolution ?? false);
       // A broadcast carries no maxFps (it is computed on the list), so only the cap follows it.
       setRecordFpsCap(record.fpsCap ?? null);
@@ -937,11 +957,11 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       // and persists against.
       if (writeSeqRef.current !== seq) return;
       // Widget size is written with the layout, so it goes stale the same way.
-      setRecordWidgetSize(recordWidgetSizeOf(record, glassSurface) ?? null);
+      setRecordWidgetSize(recordWidgetSizeOf(record, d215Surface ?? deviceSurface) ?? null);
       const synced = layoutSurfaceOf(record, record.capabilities?.touch ?? glassTouch);
       setLayout(normalizePanelLayout(record.layout ?? defaultLayoutForSurface(synced.surface), synced.surface, synced.touch, synced.forcedGrid, !!record.displayId));
     }).catch(() => {});
-  }, [editingDeviceId, glassSurface, glassTouch, layoutSurfaceOf]);
+  }, [editingDeviceId, deviceSurface, glassTouch, isD215Panel, layoutSurfaceOf]);
 
   // Every broadcast-driven read goes through this. A write of ours in flight
   // must defer rather than apply, or the echo reverts a controlled field
@@ -967,6 +987,23 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     lastWriteFailToastRef.current = now;
     pushToast({ title: t('devices.panels.saveFailedTitle'), body: t('devices.panels.saveFailedBody') });
   }, [pushToast, t]);
+
+  const changePanelPortrait = (portrait: boolean) => {
+    const id = device?.panelRecordId;
+    if (!isD215Panel) {
+      setRecordPortrait(portrait);
+      if (id) void patchPanelDevice(id, { portrait }).catch(() => {});
+      return;
+    }
+    if (!id || savingD215Portrait) return;
+    setSavingD215Portrait(true);
+    void patchPanelDevice(id, { portrait }).then(record => {
+      // The setting is persisted before the renderer restarts. Its new
+      // capabilities and canvas arrive together on the record broadcast.
+      if (record) setRecordPortrait(record.portrait ?? portrait);
+      else reportWriteFailed();
+    }).catch(reportWriteFailed).finally(() => setSavingD215Portrait(false));
+  };
 
   const writeRecordPatch = useCallback((id: string, patch: PanelDevicePatch) => {
     pendingWritesRef.current += 1;
@@ -2016,6 +2053,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                       </SettingsSection>
                     </div>
                   )}
+                  {activeTab === 'settings' && isD215Panel && device?.panelRecordId && (
+                    <D215BrightnessSettings key={device.panelRecordId} recordId={device.panelRecordId} />
+                  )}
                   {activeTab === 'settings' && isDimmableLcdPanel && (
                     <MonitorSettingsPanel
                       brightness={recordLcdBrightness}
@@ -2090,31 +2130,32 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                             label={t('devices.lcd.portrait')}
                             description={t('devices.lcd.portraitHint')}
                             checked={recordPortrait}
-                            onChange={() => {
-                              const next = !recordPortrait;
-                              setRecordPortrait(next);
-                              if (device?.panelRecordId) void patchPanelDevice(device.panelRecordId, { portrait: next }).catch(() => {});
-                            }}
+                            disabled={isD215Panel && (savingD215Portrait || !device?.panelRecordId)}
+                            onChange={changePanelPortrait}
                           />
                         )}
-                        <SettingToggle
-                          label={t('devices.lcd.flip180')}
-                          checked={recordFlip180}
-                          onChange={() => {
-                            const next = !recordFlip180;
-                            setRecordFlip180(next);
-                            if (device?.panelRecordId) void patchPanelDevice(device.panelRecordId, { flip180: next }).catch(() => {});
-                          }}
-                        />
-                        <SettingToggle
-                          label={t('devices.lcd.mirror')}
-                          checked={recordMirror}
-                          onChange={() => {
-                            const next = !recordMirror;
-                            setRecordMirror(next);
-                            if (device?.panelRecordId) void patchPanelDevice(device.panelRecordId, { mirror: next }).catch(() => {});
-                          }}
-                        />
+                        {!isD215Panel && (
+                          <>
+                            <SettingToggle
+                              label={t('devices.lcd.flip180')}
+                              checked={recordFlip180}
+                              onChange={() => {
+                                const next = !recordFlip180;
+                                setRecordFlip180(next);
+                                if (device?.panelRecordId) void patchPanelDevice(device.panelRecordId, { flip180: next }).catch(() => {});
+                              }}
+                            />
+                            <SettingToggle
+                              label={t('devices.lcd.mirror')}
+                              checked={recordMirror}
+                              onChange={() => {
+                                const next = !recordMirror;
+                                setRecordMirror(next);
+                                if (device?.panelRecordId) void patchPanelDevice(device.panelRecordId, { mirror: next }).catch(() => {});
+                              }}
+                            />
+                          </>
+                        )}
                       </SettingsSection>
                     </div>
                   )}
@@ -2202,22 +2243,24 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                             {t('devices.panels.resetPersonalization.button')}
                           </Button>
                         </SettingRow>
-                        <SettingRow
-                          label={t('devices.panels.resetHardware.label')}
-                          description={t(isQSeries
-                            ? 'devices.panels.resetHardware.descriptionQSeries'
-                            : 'devices.panels.resetHardware.description')}
-                        >
-                          <Button
-                            type="button"
-                            tone="danger"
-                            size="sm"
-                            onClick={() => setResetHardwareConfirmOpen(true)}
-                            disabled={resettingHardware || !editingDeviceId}
+                        {!isD215Panel && (
+                          <SettingRow
+                            label={t('devices.panels.resetHardware.label')}
+                            description={t(isQSeries
+                              ? 'devices.panels.resetHardware.descriptionQSeries'
+                              : 'devices.panels.resetHardware.description')}
                           >
-                            {t('devices.panels.resetHardware.button')}
-                          </Button>
-                        </SettingRow>
+                            <Button
+                              type="button"
+                              tone="danger"
+                              size="sm"
+                              onClick={() => setResetHardwareConfirmOpen(true)}
+                              disabled={resettingHardware || !editingDeviceId}
+                            >
+                              {t('devices.panels.resetHardware.button')}
+                            </Button>
+                          </SettingRow>
+                        )}
                         {isQSeries && (
                           <>
                             <SettingRow

@@ -15,10 +15,10 @@ export type PanelWidgetSize = PanelBaseWidgetSize | FreeformWidgetSize;
 // 'lcd-round' / 'lcd-square' / 'lcd-wide' = a cooler LCD fed pushed frames. These are not
 // one model's resolution: the panel record carries the real pixel size, so a Galahad II
 // LCD, a Kraken and an ID-Cooling FX-LCD share 'lcd-round'.
-// The three differ only in the shape of the one tile they carry, which the surface picks.
+// 'lcd-portrait' is rectangular portrait glass with one 2x4 tile.
 export const PANEL_SURFACES = [
   'y70', 'q60', 'phone', 'desktop', 'monitor',
-  'lcd-round', 'lcd-square', 'lcd-wide',
+  'lcd-round', 'lcd-square', 'lcd-wide', 'lcd-portrait',
 ] as const;
 export type PanelSurface = typeof PANEL_SURFACES[number];
 
@@ -27,6 +27,7 @@ export type PanelSurface = typeof PANEL_SURFACES[number];
 // the web never stamps it.
 export const LEGACY_KRAKEN_SURFACE = 'kraken';
 export const NZXT_KRAKEN_FAMILY = 'nzxt-kraken';
+export const JUNGLE_LEOPARD_D215_FAMILY = 'jungle-leopard-d215';
 // The Kraken's grid density, stamped on its record because 'lcd-round' estimates another.
 export const KRAKEN_PANEL_DPI = 240;
 
@@ -39,7 +40,7 @@ export function surfaceSupportsTouch(surface: PanelSurface, deviceTouch?: boolea
   if (surface === 'monitor') return deviceTouch === true;
   // Cooler glass is a framebuffer on a USB pipe with no input path at all.
   return surface !== 'q60'
-    && surface !== 'lcd-round' && surface !== 'lcd-square' && surface !== 'lcd-wide';
+    && surface !== 'lcd-round' && surface !== 'lcd-square' && surface !== 'lcd-wide' && surface !== 'lcd-portrait';
 }
 
 export type SurfaceInputMode = 'touch' | 'pointer' | 'none';
@@ -73,7 +74,7 @@ export function widgetDisplayShape(size: PanelWidgetSize): 'rect' | 'round' {
 // apart - PanelDisplayBoundContext supplies the real per-device value.
 export function isStreamedPanelSurface(surface: PanelSurface, displayBound = true): boolean {
   if (surface === 'lcd-round' || surface === 'lcd-square'
-    || surface === 'lcd-wide' || surface === 'q60') return true;
+    || surface === 'lcd-wide' || surface === 'lcd-portrait' || surface === 'q60') return true;
   return surface === 'monitor' && !displayBound;
 }
 
@@ -112,7 +113,7 @@ export function canEditFreeText(surface?: PanelSurface, desktopEditor?: boolean)
 // Surfaces hosting one widget at a fixed size. Add a surface by adding an
 // entry here; nothing else should branch on a literal surface name. Q-series
 // LCD: ~240x800 portrait strip, no touch, room for one tile.
-export const SINGLE_WIDGET_SURFACE_SIZE: Readonly<Partial<Record<PanelSurface, PanelWidgetSize>>> = {
+export const SINGLE_WIDGET_SURFACE_SIZE = {
   q60: '2x4',
   // Cooler LCDs: one tile, masked to the glass's shape.
   'lcd-round': '2x2round',
@@ -120,7 +121,8 @@ export const SINGLE_WIDGET_SURFACE_SIZE: Readonly<Partial<Record<PanelSurface, P
   // Wide cooler glass (a 1600x720 Thermalright Wonder Vision): a landscape tile.
   // Like the rest of the family it stays one widget with no pager and no placing.
   'lcd-wide': '4x2',
-};
+  'lcd-portrait': '2x4',
+} as const satisfies Partial<Record<PanelSurface, PanelWidgetSize>>;
 
 /** The shape of a surface's display: a round display carries one circular tile, every other surface is rectangular. */
 export function surfaceDisplayShape(surface: PanelSurface): 'rect' | 'round' {
@@ -129,7 +131,7 @@ export function surfaceDisplayShape(surface: PanelSurface): 'rect' | 'round' {
 }
 
 export function singleWidgetSurfaceSize(surface: PanelSurface): PanelWidgetSize | undefined {
-  return SINGLE_WIDGET_SURFACE_SIZE[surface];
+  return isSingleWidgetSurface(surface) ? SINGLE_WIDGET_SURFACE_SIZE[surface] : undefined;
 }
 
 // The size a widget should lay out and theme for. The round tile is a 2x2 cell
@@ -157,8 +159,8 @@ export function surfaceScalesContentToShortSide(surface: PanelSurface): boolean 
   return SHORT_SIDE_CONTENT_SURFACES.has(surface);
 }
 
-export function isSingleWidgetSurface(surface: PanelSurface): boolean {
-  return singleWidgetSurfaceSize(surface) !== undefined;
+export function isSingleWidgetSurface(surface: PanelSurface): surface is keyof typeof SINGLE_WIDGET_SURFACE_SIZE {
+  return Object.hasOwn(SINGLE_WIDGET_SURFACE_SIZE, surface);
 }
 
 // Pages are reached by swiping, so a panel without touch keeps one page, except a
@@ -445,9 +447,7 @@ const SHARED_WITH_MULTI_WIDGET_SURFACES: ReadonlySet<PanelWidgetSize> =
   new Set<PanelWidgetSize>(['2x2', '4x2']);
 
 export const SINGLE_WIDGET_SIZES: ReadonlySet<PanelWidgetSize> = new Set(
-  Object.values(SINGLE_WIDGET_SURFACE_SIZE).filter(
-    (s): s is PanelWidgetSize => s !== undefined && !SHARED_WITH_MULTI_WIDGET_SURFACES.has(s),
-  ),
+  Object.values(SINGLE_WIDGET_SURFACE_SIZE).filter((s) => !SHARED_WITH_MULTI_WIDGET_SURFACES.has(s)),
 );
 
 // Largest side a stored freeform span may claim; keeps a corrupt string from

@@ -211,7 +211,7 @@ const BOOL_CAPS = new Set(['rgb.read', 'rgb.write', 'config', 'appData', 'teleme
 // 'kraken' is the NZXT Kraken round LCD, now laid out as 'lcd-round'; manifests naming it stay valid.
 const KNOWN_SURFACES = new Set([
   'y70', 'q60', 'phone', 'desktop', 'monitor', 'kraken',
-  'lcd-round', 'lcd-square', 'lcd-wide',
+  'lcd-round', 'lcd-square', 'lcd-wide', 'lcd-portrait',
 ]);
 const KNOWN_SIZES = new Set(['1x1', '2x2', '2x4', '4x2', '4x4', '2x2round']);
 

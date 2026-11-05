@@ -23,7 +23,7 @@ import {
   type PanelDevice,
   type PanelDeviceCapabilities,
 } from '../panel/device/panelDevices';
-import type { PanelSurface } from '../panel/types';
+import { JUNGLE_LEOPARD_D215_FAMILY, type PanelSurface } from '../panel/types';
 
 const Y70_CAPABILITIES: PanelDeviceCapabilities = {
   layout: true,
@@ -88,6 +88,7 @@ const SIMULATED_SURFACE_CAPABILITIES: Partial<Record<PanelSurface, PanelDeviceCa
   y70: { ...Y70_CAPABILITIES, displayControls: false, launchClose: false },
   'lcd-round': STREAMED_PANEL_CAPABILITIES,
   'lcd-wide': STREAMED_PANEL_CAPABILITIES,
+  'lcd-portrait': STREAMED_PANEL_CAPABILITIES,
   'lcd-square': STREAMED_PANEL_CAPABILITIES,
 };
 
@@ -375,15 +376,15 @@ export function buildPanelDevices({
     // The family is the handler id, which is also the curated device row's id. Claiming
     // that row merges the two into one sidebar entry, the way the Q60 carries its cooler.
     const family = record.capabilities?.family;
-    const claimed = family && curatedDevices.some(d => d.id === family) ? family : undefined;
+    const backing = family ? curatedDevices.find(d => d.id === family) : undefined;
+    if (family === JUNGLE_LEOPARD_D215_FAMILY && !backing?.connected) continue;
     // A claimed panel IS the device's row, so it carries the device's name; the
     // record's own name describes only the glass ("NZXT Kraken LCD").
-    const claimedName = claimed ? curatedDevices.find(d => d.id === claimed)?.name : undefined;
     devices.push({
       id: streamedPanelId(record.id),
       panelRecordId: record.id,
-      sourceId: claimed,
-      name: claimedName ?? record.displayName,
+      sourceId: backing?.id,
+      name: backing?.name ?? record.displayName,
       subtitle: cssWidth > 0 && cssHeight > 0
         ? `${labels.online} - ${cssWidth}x${cssHeight}`
         : labels.online,

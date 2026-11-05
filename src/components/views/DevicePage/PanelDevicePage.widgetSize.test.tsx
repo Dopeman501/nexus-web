@@ -7,8 +7,10 @@ import type { PanelLayout, PanelWidget } from '../../../panel/types';
 // heavy leaves (catalog, theme, iframe preview) are stubbed.
 
 const fetchPanelDevicesMock = vi.fn();
+const fetchPanelDeviceMock = vi.fn();
 const patchPanelDeviceMock = vi.fn();
 const pushToastMock = vi.fn();
+let topicHandler: ((raw: unknown) => void) | undefined;
 
 vi.mock('../../common/Toast/Toast', () => ({
   useToast: () => ({ push: pushToastMock }),
@@ -34,12 +36,14 @@ vi.mock('./PanelPresetToolbar', () => ({ PanelPresetToolbar: () => null }));
 vi.mock('../../../api/panel', () => ({
   fetchPanelDeviceWithStatus: vi.fn().mockResolvedValue({ found: false, status: 404 }),
   allocatePanelDevice: vi.fn().mockResolvedValue({ id: 'lcd5' }),
-  fetchPanelDevice: vi.fn().mockResolvedValue(null),
+  fetchPanelDevice: (...a: unknown[]) => fetchPanelDeviceMock(...a),
   fetchPanelDevices: (...a: unknown[]) => fetchPanelDevicesMock(...a),
   patchPanelDevice: (...a: unknown[]) => patchPanelDeviceMock(...a),
 }));
 vi.mock('../../../hooks/useMultiplexSocket', () => ({
-  useTopicCallback: () => {},
+  useTopicCallback: (topic: string, _on: boolean, callback: (raw: unknown) => void) => {
+    if (topic === 'panel/device') topicHandler = callback;
+  },
   useMultiplex: () => ({ connected: true }),
 }));
 vi.mock('../../../panel/engine/panelSync', () => ({
@@ -84,18 +88,22 @@ vi.mock('../../../panel/widgets/registry', () => ({
     Settings: undefined,
   }),
   sizesForSurface: (_meta: unknown, surface: string, _touch?: boolean, slots?: number) => (
-    slots !== undefined ? ['2x2', '2x4'] : surface === 'q60' ? ['2x4'] : ['2x2', '4x4']
+    surface === 'lcd-portrait' ? ['2x4'] : surface === 'lcd-wide' ? ['4x2']
+      : slots !== undefined ? ['2x2', '2x4'] : surface === 'q60' ? ['2x4'] : ['2x2', '4x4']
   ),
   appAvailableForSurface: (meta: { touch?: boolean }, _surface: string, opts?: { deviceTouch?: boolean }) => !(meta.touch && opts?.deviceTouch !== true),
 }));
 vi.mock('./PanelEmbedFrame', () => ({
-  PanelEmbedFrame: (props: { layout: PanelLayout; surface: string }) => (
+  PanelEmbedFrame: (props: { layout: PanelLayout; surface: string; canvasSize?: { width: number; height: number } }) => (
     <div
       data-testid="embed"
       data-surface={props.surface}
       data-active-page={props.layout.activePageId}
       data-page-count={props.layout.pages.length}
       data-widget-count={props.layout.pages.flatMap(p => p.widgets).length}
+      data-widget-size={props.layout.pages[0]?.widgets[0]?.size}
+      data-width={props.canvasSize?.width}
+      data-height={props.canvasSize?.height}
     />
   ),
 }));
@@ -149,8 +157,10 @@ const patches = () => patchPanelDeviceMock.mock.calls.map(([, patch]) => patch a
 
 beforeEach(() => {
   fetchPanelDevicesMock.mockReset();
+  fetchPanelDeviceMock.mockReset().mockResolvedValue(null);
   patchPanelDeviceMock.mockReset().mockResolvedValue({ ok: true });
   pushToastMock.mockReset();
+  topicHandler = undefined;
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -175,6 +185,86 @@ async function renderPage(rec: Record<string, unknown>, device: PanelDevice = DE
 }
 
 describe('PanelDevicePage widget size', () => {
+  it('edits the D215 portrait playlist through the native panel record', async () => {
+    const surface = 'lcd-portrait';
+    const family = 'jungle-leopard-d215';
+    const device: PanelDevice = {
+      ...DEVICE, id: 'stream:lcd5', name: 'Jungle Leopard D215', family, connectionKind: 'usb-display',
+      displayId: undefined, runtimeSurface: surface, previewSize: { width: 756, height: 1680 }, previewDpr: 1,
+    };
+    fetchPanelDevicesMock.mockResolvedValue({ devices: [record({
+      displayId: undefined, streamed: true,
+      capabilities: { surface, family, cssWidth: 756, cssHeight: 1680, dpr: 1, touch: false },
+      layout: layout([widget('clock', 'clock', 0, 0, '2x4')], surface),
+    })] });
+    render(<PanelDevicePage device={device} />);
+
+    expect(await screen.findByRole('tab', { name: 'devices.y70.tab.settings' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'devices.y70.tab.theme' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'devices.y70.theme.background' })).toBeInTheDocument();
+    expect(screen.getByTestId('embed').dataset.surface).toBe(surface);
+    fireEvent.click(screen.getByRole('switch', { name: 'panel.playlist.playlist' }));
+
+    await waitFor(() => expect(patchPanelDeviceMock).toHaveBeenCalledWith('lcd5', expect.objectContaining({
+      layout: expect.objectContaining({ surface, widgetPlaylist: expect.objectContaining({ enabled: true }) }),
+    })));
+  });
+
+  it('follows a D215 orientation broadcast through the same record and keeps the playlist', async () => {
+    const family = 'jungle-leopard-d215';
+    const device: PanelDevice = {
+      ...DEVICE, id: 'stream:lcd5', name: 'Jungle Leopard D215', family, connectionKind: 'usb-display',
+      displayId: undefined, runtimeSurface: 'lcd-portrait', previewSize: { width: 756, height: 1680 }, previewDpr: 1,
+    };
+    const initialLayout = layout([widget('clock', 'clock', 0, 0, '2x4')], 'lcd-portrait');
+    const initial = record({
+      displayId: undefined, streamed: true,
+      capabilities: { surface: 'lcd-portrait', family, cssWidth: 756, cssHeight: 1680, dpr: 1, touch: false, supportsPortrait: true },
+      layout: { ...initialLayout, widgetPlaylist: { enabled: true, types: ['clock', 'calendar'], order: ['clock', 'calendar'], interval: 60, shuffle: false } },
+    });
+    fetchPanelDevicesMock.mockResolvedValue({ devices: [initial] });
+    patchPanelDeviceMock.mockResolvedValueOnce({ ...initial, portrait: false });
+    render(<PanelDevicePage device={device} />);
+
+    const settings = await screen.findByRole('tab', { name: 'devices.y70.tab.settings' });
+    await act(async () => { fireEvent.click(settings); });
+    const portraitMount = () => screen.getByRole('switch', { name: 'devices.lcd.portrait' });
+    expect(portraitMount()).toBeChecked();
+    await act(async () => { fireEvent.click(portraitMount()); });
+    expect(patchPanelDeviceMock).toHaveBeenCalledWith('lcd5', { portrait: false });
+    expect(portraitMount()).not.toBeChecked();
+    expect(screen.getByTestId('embed')).toHaveAttribute('data-surface', 'lcd-portrait');
+
+    fetchPanelDeviceMock.mockResolvedValue({ ...initial, portrait: false,
+      capabilities: { ...initial.capabilities, surface: 'lcd-wide', cssWidth: 1680, cssHeight: 756 },
+    });
+    await act(async () => { topicHandler?.({ deviceId: 'lcd5' }); });
+    const preview = screen.getByTestId('embed');
+    expect(preview).toHaveAttribute('data-surface', 'lcd-wide');
+    expect(preview).toHaveAttribute('data-width', '1680');
+    expect(preview).toHaveAttribute('data-height', '756');
+    expect(preview).toHaveAttribute('data-widget-size', '4x2');
+    expect(screen.queryByRole('switch', { name: 'devices.lcd.flip180' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'devices.lcd.mirror' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'devices.y70.tab.widgets' }));
+    const playlist = screen.getByRole('switch', { name: 'panel.playlist.playlist' });
+    expect(playlist).toBeChecked();
+    fireEvent.click(playlist);
+    await waitFor(() => expect(patchPanelDeviceMock).toHaveBeenLastCalledWith('lcd5', expect.objectContaining({
+      layout: expect.objectContaining({ surface: 'lcd-wide', widgetPlaylist: expect.objectContaining({ enabled: false, types: ['clock', 'calendar'] }) }),
+    })));
+
+    fireEvent.click(settings);
+    expect(portraitMount()).not.toBeChecked();
+    patchPanelDeviceMock.mockResolvedValueOnce(null);
+    await act(async () => { fireEvent.click(portraitMount()); });
+    expect(patchPanelDeviceMock).toHaveBeenLastCalledWith('lcd5', { portrait: true });
+    expect(portraitMount()).not.toBeChecked();
+    expect(preview).toHaveAttribute('data-surface', 'lcd-wide');
+    expect(pushToastMock).toHaveBeenCalledWith(expect.objectContaining({ title: 'devices.panels.saveFailedTitle' }));
+  });
+
   it('renders the slider inside the Theme section, before Widget padding, with its description, and not on the Widgets tab', async () => {
     await renderPage({ widgetSize: 'large' });
     const theme = screen.getByTestId('theme');

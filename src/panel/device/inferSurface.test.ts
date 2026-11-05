@@ -58,7 +58,7 @@ describe('panelSurfaceHint', () => {
   });
 
   it('ignores surfaces whose records only the service creates', () => {
-    for (const s of ['monitor', 'lcd-round', 'lcd-square', 'lcd-wide']) {
+    for (const s of ['monitor', 'lcd-round', 'lcd-square', 'lcd-wide', 'lcd-portrait']) {
       expect(panelSurfaceHint(s)).toBeNull();
     }
   });

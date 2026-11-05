@@ -70,6 +70,29 @@ beforeEach(() => {
   mockUseStreamDecks.mockReturnValue({ decks: [] });
 });
 
+describe('D215 control and editor device row', () => {
+  it('keeps the same row while the stream claims the detected device and while control is off', () => {
+    const id = 'jungle-leopard-d215';
+    const handler = makeHandlerRow({ id, name: 'Jungle Leopard D215', category: 'display', connected: true, nexusControlEnabled: false });
+    mockUseDevices.mockReturnValue({ devices: [handler], controlDevice: vi.fn() });
+    const { result, rerender } = renderHook(() => useUnifiedDevices(true));
+    expect(result.current.unified).toHaveLength(1);
+    expect(result.current.unified[0]).toMatchObject({ key: `curated-${id}`, nexusControlEnabled: false, navigable: true });
+
+    const panel = { id: 'stream:rec-1', sourceId: id, name: handler.name, connectionKind: 'usb-display', status: 'online' } as PanelDevice;
+    mockUsePanelDevices.mockReturnValue({ devices: [panel], loading: false });
+    mockUseDevices.mockReturnValue({ devices: [{ ...handler, nexusControlEnabled: true }], controlDevice: vi.fn() });
+    rerender();
+    expect(result.current.unified).toHaveLength(1);
+    expect(result.current.unified[0]).toMatchObject({ key: `curated-${id}`, kind: 'panel', panelDevice: panel, nexusControlEnabled: true });
+
+    mockUsePanelDevices.mockReturnValue({ devices: [], loading: false });
+    mockUseDevices.mockReturnValue({ devices: [handler], controlDevice: vi.fn() });
+    rerender();
+    expect(result.current.unified[0]).toMatchObject({ key: `curated-${id}`, kind: 'curated', nexusControlEnabled: false });
+  });
+});
+
 describe('useUnifiedDevices - Stream Deck per-deck entries', () => {
   it('emits one entry per deck instead of the singleton streamdeck handler row', () => {
     mockUseDevices.mockReturnValue({ devices: [makeHandlerRow({ connected: true })], controlDevice: vi.fn() });

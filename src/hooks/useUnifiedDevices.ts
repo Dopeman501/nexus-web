@@ -11,6 +11,7 @@ import {
   PANEL_SIMULATION_CHANGED_EVENT,
 } from '../lib/panelSimulation';
 import { HYTE_LOGO, PANEL_MONITOR_ICON, isRemotePanel, type PanelDevice } from '../panel/device/panelDevices';
+import { JUNGLE_LEOPARD_D215_FAMILY } from '../panel/types';
 import { useTryxSimulated } from '../lib/tryxSimulation';
 import { useTranslation } from '../lib/i18n';
 import {
@@ -371,7 +372,8 @@ function buildUnifiedList(
     // display promote/demote API, not controlDevice).
     const isPromotedMonitor = !!p.displayId;
     list.push({
-      key: panelDeviceKey(p.id),
+      // Keep the D215 route when the stream takes over or releases its handler row.
+      key: sourceId === JUNGLE_LEOPARD_D215_FAMILY ? `curated-${sourceId}` : panelDeviceKey(p.id),
       shortName,
       name: p.name,
       subtitle: p.subtitle,

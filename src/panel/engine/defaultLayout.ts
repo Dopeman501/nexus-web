@@ -1,4 +1,4 @@
-import type { PanelConfigValue, PanelLayout, PanelWidget, PanelWidgetSize } from '../types';
+import { isSingleWidgetSurface, type PanelConfigValue, type PanelLayout, type PanelWidget, type PanelWidgetSize } from '../types';
 import { createUuid } from '../../lib/uuid';
 import { getInstallDefaults } from '../../api/installDefaultsCache';
 
@@ -19,8 +19,7 @@ function buildLayout(surface: PanelLayout['surface']): PanelLayout {
   // Single-widget surfaces borrow the Q60's defaults: one tile, no pager.
   const sourceKey = surface === 'monitor'
     ? 'desktop'
-    : (surface === 'lcd-round' || surface === 'lcd-square'
-        || surface === 'lcd-wide')
+    : isSingleWidgetSurface(surface)
       ? 'q60'
       : surface;
   const src = defaults?.panel.layouts[sourceKey];

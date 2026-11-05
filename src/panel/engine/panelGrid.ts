@@ -35,6 +35,8 @@ export const DEFAULT_SURFACE_DPI: Record<PanelSurface, number> = {
   'lcd-round': 210,
   'lcd-square': 210,
   'lcd-wide': 210,
+  // The D215 renders 756x1680 across a 6.67-inch diagonal.
+  'lcd-portrait': 276,
 };
 
 export function clampNumber(value: number, min: number, max: number) {

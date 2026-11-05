@@ -3,6 +3,7 @@ import {
   PANEL_WIDGET_SIZES,
   SINGLE_WIDGET_SIZES,
   isSingleWidgetSurface,
+  isStreamedPanelSurface,
   singleWidgetSurfaceSize,
   panelCanvasEditable,
   surfaceSupportsTouch,
@@ -11,6 +12,9 @@ import {
 } from './types';
 import { DEFAULT_SURFACE_DPI } from './engine/panelGrid';
 import { panelGridCapacityForCanvas } from './engine/grid';
+import { appAvailableForSurface } from './widgets/registry';
+import { clockApp } from './widgets/clock';
+import { calendarApp } from './widgets/calendar';
 
 const LCD_SURFACES: PanelSurface[] = ['lcd-round', 'lcd-square', 'lcd-wide'];
 
@@ -92,6 +96,20 @@ describe('wide cooler glass lays its tile out landscape', () => {
 
     expect(landscape.contentScale).toBe(120);
     expect(square.contentScale).toBe(square.cellSize);
+  });
+});
+
+describe('portrait LCD', () => {
+  it('fits a display-only 2x4 tile on the D215 canvas and offers Clock and Calendar', () => {
+    const surface = 'lcd-portrait';
+    const cap = panelGridCapacityForCanvas(756, 1680, { surface, gap: 0, padding: 0 });
+    expect([cap.columns, cap.rows, cap.cellSize, cap.rowSize]).toEqual([2, 4, 378, 420]);
+    expect(singleWidgetSurfaceSize(surface)).toBe('2x4');
+    expect(surfaceSupportsTouch(surface)).toBe(false);
+    expect(isStreamedPanelSurface(surface)).toBe(true);
+    expect(panelCanvasEditable(surface, false, true)).toBe(false);
+    expect(appAvailableForSurface(clockApp.meta, surface)).toBe(true);
+    expect(appAvailableForSurface(calendarApp.meta, surface)).toBe(true);
   });
 });
 
