@@ -38,6 +38,7 @@ import type { EffectState } from '../../types/lighting';
 import type { PanelSlideshowSettings, PanelThemeSettingsState, ResolvedPanelThemeMode } from '../editor/PanelThemeSettings';
 import { isSingleWidgetSurface, panelLayoutSurface, surfaceDefaultsToAnimatedBackground, type PanelSurface } from '../types';
 import { supportsDesktopWallpaper } from '../device/wiredPanel';
+import { normalizeAudioTrigger, type AudioTriggerSettings } from '../background/audioTrigger';
 
 export type PanelThemeState = PanelThemeSettingsState;
 
@@ -232,6 +233,7 @@ export function buildPanelTheme(prefs: Preferences | null, record: PanelDeviceRe
     backgroundSlideshowShuffle: r?.backgroundMediaShuffle === true,
     backgroundSlideshowFinishVideos: r?.backgroundMediaFinishVideos !== false,
     backgroundMediaOrder: normalizePanelBackgroundMediaOrder(r?.backgroundMediaOrder),
+    backgroundAudioTrigger: normalizeAudioTrigger(r?.backgroundAudioTrigger),
     backgroundFrost: normalizePanelBackgroundFrost(r?.backgroundFrostLevel),
     immersiveBackdrop: r?.immersiveBackdrop !== false,
     widgetOpacity: r?.widgetOpacity == null && single ? 0 : normalizePanelWidgetOpacity(r?.widgetOpacity),
@@ -485,6 +487,12 @@ export function usePanelTheme(
     persistPatch({ backgroundMediaOrder: ids });
   }, [persistPatch]);
 
+  const commitBackgroundAudioTrigger = useCallback((settings: AudioTriggerSettings) => {
+    const next = normalizeAudioTrigger(settings);
+    setTheme(prev => ({ ...prev, backgroundAudioTrigger: next }));
+    persistPatch({ backgroundAudioTrigger: next });
+  }, [persistPatch]);
+
   const commitBackgroundFrost = useCallback((percent: number) => {
     const next = normalizePanelBackgroundFrost(percent);
     setTheme(prev => ({ ...prev, backgroundFrost: next }));
@@ -570,6 +578,7 @@ export function usePanelTheme(
     commitBackgroundOpacity,
     commitBackgroundMedia,
     commitBackgroundSlideshow,
+    commitBackgroundAudioTrigger,
     commitBackgroundMediaOrder,
     previewBackgroundFrost: (percent: number) => setTheme(prev => (
       { ...prev, backgroundFrost: normalizePanelBackgroundFrost(percent) }

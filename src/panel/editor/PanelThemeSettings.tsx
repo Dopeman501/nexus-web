@@ -34,6 +34,8 @@ import { SearchInput } from '../../components/common/SearchInput/SearchInput';
 import { AnimateGrid } from '../widgets/lighting/page/AnimateGrid';
 import { EffectControls } from '../widgets/lighting/page/EffectControls';
 import { BackgroundMediaPicker } from '../background/BackgroundMediaPicker';
+import { PanelAudioTriggerSettings } from '../background/AudioTriggerSettings';
+import type { AudioTriggerSettings } from '../background/audioTrigger';
 import { Notice } from '../../components/common/Notice/Notice';
 import styles from './PanelThemeSettings.module.scss';
 
@@ -88,6 +90,7 @@ export interface PanelThemeSettingsState {
   backgroundSlideshowFinishVideos: boolean;
   // Asset ids in grid / in-order play order; unlisted assets follow, oldest first.
   backgroundMediaOrder: string[];
+  backgroundAudioTrigger?: AudioTriggerSettings;
   // Frosted-glass blur over the background layer (shader / media / wallpaper),
   // percent 0-100 (see DEFAULT_PANEL_BACKGROUND_FROST).
   backgroundFrost: number;
@@ -129,6 +132,7 @@ export interface PanelThemeSettingsProps {
   onBackgroundMediaCommit: (mediaId: string | null, type: 'static' | 'animated' | null, alpha: boolean) => void;
   onBackgroundSlideshowCommit: (patch: Partial<PanelSlideshowSettings>) => void;
   onBackgroundMediaOrderCommit: (ids: string[]) => void;
+  onBackgroundAudioTriggerCommit?: (settings: AudioTriggerSettings) => void;
   onBackgroundFrostPreview: (percent: number) => void;
   onBackgroundFrostCommit: (percent: number) => void;
   onImmersiveBackdropCommit: (enabled: boolean) => void;
@@ -182,6 +186,8 @@ export interface PanelThemeSettingsProps {
   audioReactive?: boolean;
   /** Circle backgrounds own their animation edits instead of shared RGB presets. */
   independentBackground?: boolean;
+  /** Audio choices are individual backgrounds, never nested slideshows. */
+  hideSlideshowControls?: boolean;
 }
 
 export function PanelThemeSettings({
@@ -206,6 +212,7 @@ export function PanelThemeSettings({
   onBackgroundMediaCommit,
   onBackgroundSlideshowCommit,
   onBackgroundMediaOrderCommit,
+  onBackgroundAudioTriggerCommit,
   onBackgroundFrostPreview,
   onBackgroundFrostCommit,
   onImmersiveBackdropCommit,
@@ -234,6 +241,7 @@ export function PanelThemeSettings({
   backgroundHeldBy = null,
   audioReactive = false,
   independentBackground = false,
+  hideSlideshowControls = false,
 }: PanelThemeSettingsProps) {
   const showTheme = sections !== 'background';
   const showBackground = sections !== 'theme';
@@ -375,6 +383,12 @@ export function PanelThemeSettings({
       onCommit={v => onBackgroundOpacityCommit(v / 100)}
     />
   );
+
+  const audioTriggerControls = audioReactive && !independentBackground && onBackgroundAudioTriggerCommit ? (
+    <PanelAudioTriggerSettings value={theme.backgroundAudioTrigger} onChange={onBackgroundAudioTriggerCommit}
+      themeMode={resolvedThemeMode} deviceId={deviceId} deviceAspect={deviceAspect} deviceW={deviceW} deviceH={deviceH}
+      round={roundDisplay} />
+  ) : null;
 
   return (
     <div className={styles.themePanel}>
@@ -577,6 +591,7 @@ export function PanelThemeSettings({
             {theme.backgroundMode === 'solid' ? (
               <>
                 {backgroundModeChips}
+                {audioTriggerControls}
                 <ColorPickerWithPresets
                   value={resolvePanelBackground(theme.backgroundColor, theme.backgroundColorLight, resolvedThemeMode)}
                   presets={panelBackgroundPresets(resolvedThemeMode)}
@@ -589,6 +604,7 @@ export function PanelThemeSettings({
             ) : theme.backgroundMode === 'media' ? (
               <>
                 {backgroundModeChips}
+                {audioTriggerControls}
                 <BackgroundMediaPicker
                   deviceId={deviceId ?? ''}
                   activeId={theme.backgroundMediaId}
@@ -597,7 +613,7 @@ export function PanelThemeSettings({
                   deviceW={deviceW ?? Math.round(deviceAspect * 1280)}
                   deviceH={deviceH ?? 1280}
                   onSelect={(mediaId, type, alpha) => onBackgroundMediaCommit(mediaId, type, alpha)}
-                  slideshow={{
+                  slideshow={hideSlideshowControls ? undefined : {
                     enabled: theme.backgroundSlideshow,
                     interval: theme.backgroundSlideshowInterval,
                     shuffle: theme.backgroundSlideshowShuffle,
@@ -612,6 +628,7 @@ export function PanelThemeSettings({
               <>
                 <div className={styles.backgroundDock}>
                   {backgroundModeChips}
+                  {audioTriggerControls}
                   <BackgroundEffectPreview
                     effect={backgroundEffect}
                     template={backgroundTemplate}

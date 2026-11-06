@@ -31,6 +31,7 @@ import { isSingleWidgetSurface, surfaceDisplayShape, surfaceSupportsTouch, type 
 import type { PanelBackgroundMode } from '../background/panelBackground';
 import { usePanelAudioReactive } from '../background/panelAudio';
 import type { PanelThemeState } from '../theme/panelTheme';
+import type { AudioTriggerSettings } from '../background/audioTrigger';
 import styles from '../PanelApp.module.scss';
 
 export type SheetMode = 'catalog' | 'settings' | 'panelSettings' | 'pairRemote' | 'pairedPcs';
@@ -76,6 +77,7 @@ export function PanelEditorSheet({
   onThemeBackgroundOpacityCommit,
   onThemeBackgroundMediaCommit,
   onThemeBackgroundSlideshowCommit,
+  onThemeBackgroundAudioTriggerCommit,
   onThemeBackgroundMediaOrderCommit,
   onThemeBackgroundFrostPreview,
   onThemeBackgroundFrostCommit,
@@ -165,6 +167,7 @@ export function PanelEditorSheet({
   onThemeBackgroundOpacityCommit: (opacity: number) => void;
   onThemeBackgroundMediaCommit: (mediaId: string | null, type: 'static' | 'animated' | null) => void;
   onThemeBackgroundSlideshowCommit: (patch: Partial<PanelSlideshowSettings>) => void;
+  onThemeBackgroundAudioTriggerCommit?: (settings: AudioTriggerSettings) => void;
   onThemeBackgroundMediaOrderCommit: (ids: string[]) => void;
   onThemeBackgroundFrostPreview: (percent: number) => void;
   onThemeBackgroundFrostCommit: (percent: number) => void;
@@ -483,6 +486,7 @@ export function PanelEditorSheet({
               onBackgroundOpacityCommit={onThemeBackgroundOpacityCommit}
               onBackgroundMediaCommit={onThemeBackgroundMediaCommit}
               onBackgroundSlideshowCommit={onThemeBackgroundSlideshowCommit}
+              onBackgroundAudioTriggerCommit={onThemeBackgroundAudioTriggerCommit}
               onBackgroundMediaOrderCommit={onThemeBackgroundMediaOrderCommit}
               onBackgroundFrostPreview={onThemeBackgroundFrostPreview}
               onBackgroundFrostCommit={onThemeBackgroundFrostCommit}

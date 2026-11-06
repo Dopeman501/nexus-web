@@ -1854,6 +1854,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                             onBackgroundOpacityCommit={panelTheme.commitBackgroundOpacity}
                             onBackgroundMediaCommit={panelTheme.commitBackgroundMedia}
                             onBackgroundSlideshowCommit={panelTheme.commitBackgroundSlideshow}
+                            onBackgroundAudioTriggerCommit={panelTheme.commitBackgroundAudioTrigger}
                             onBackgroundMediaOrderCommit={panelTheme.commitBackgroundMediaOrder}
                             onBackgroundFrostPreview={panelTheme.previewBackgroundFrost}
                             onBackgroundFrostCommit={panelTheme.commitBackgroundFrost}

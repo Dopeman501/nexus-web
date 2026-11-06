@@ -136,7 +136,9 @@ import { largeChromeGrid, isSingleWidgetSurface, surfaceDisplayShape, cellInputO
 import { PanelGlassSurfaceProvider } from './widgets/common/PanelGlassSurfaceContext';
 import { q60OfflineClockPages } from './engine/q60OfflineClock';
 import { inferSurfaceFromViewport } from './device/inferSurface';
-import { isLocalPanelClient } from './background/panelAudio';
+import { isLocalPanelClient, panelAudioReactiveAllowed } from './background/panelAudio';
+import { useAudioTrigger } from './background/useAudioTrigger';
+import { AudioTriggerBackgroundLayer } from './background/AudioTriggerBackgroundLayer';
 import { panelSystemFontsAvailable } from './theme/panelFont';
 import { PanelBackgroundShader } from './background/PanelBackgroundShader';
 import { PanelBackgroundMedia } from './background/PanelBackgroundMedia';
@@ -1315,6 +1317,8 @@ export function PanelContent({
   const showD215Widget = isD215Composition && d215Widget.enabled && shownSingleWidget !== undefined && !widgetConflictsWithCircle;
   const backgroundCovered = (!isD215Composition || (showD215Widget && d215Widget.scale === 1 && !(simulator && widgetEditing)))
     && shownSingleWidget !== undefined && opaqueWidgetIds.has(shownSingleWidget.id) && !immersiveSeeThrough;
+  const audioBackground = useAudioTrigger(effectiveTheme.backgroundAudioTrigger,
+    showBackgroundLayers && !backgroundCovered && !focusStaticMode && panelAudioReactiveAllowed(glassSurface, isLocalPanelClient()), deviceId ?? null);
   useEffect(() => {
     if (simulator) onSimulatorBackgroundCovered?.(backgroundCovered);
   }, [simulator, backgroundCovered, onSimulatorBackgroundCovered]);
@@ -2556,7 +2560,9 @@ export function PanelContent({
         onContextMenu={handleBackgroundContextMenu}
       >
         {showWallpaperLayer && <PanelBackgroundDesktop opacity={effectiveTheme.backgroundOpacity} />}
-        {showBackgroundLayers && effectiveTheme.backgroundMode === 'shader' && (
+        {audioBackground && <AudioTriggerBackgroundLayer background={audioBackground} deviceId={deviceId}
+          themeMode={resolvedThemeMode} surface={surface} fullRes={simulator} />}
+        {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'shader' && (
           <PanelBackgroundShader
             effect={effectiveTheme.backgroundEffect}
             template={effectiveTheme.backgroundTemplate}
@@ -2567,7 +2573,7 @@ export function PanelContent({
             covered={backgroundCovered}
           />
         )}
-        {showBackgroundLayers && effectiveTheme.backgroundMode === 'media' && deviceId && (
+        {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'media' && deviceId && (
           effectiveTheme.backgroundSlideshow ? (
             <PanelBackgroundSlideshow
               deviceId={deviceId}
@@ -2592,10 +2598,10 @@ export function PanelContent({
             />
           ) : <PanelBackgroundSolid opacity={effectiveTheme.backgroundOpacity} />
         )}
-        {showBackgroundLayers && effectiveTheme.backgroundMode === 'solid' && (
+        {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'solid' && (
           <PanelBackgroundSolid opacity={effectiveTheme.backgroundOpacity} />
         )}
-        {backgroundFrost > 0 && (
+        {!audioBackground && backgroundFrost > 0 && (
           <div
             className={styles.backgroundFrost}
             data-panel-frost
@@ -2876,6 +2882,7 @@ export function PanelContent({
           onThemeBackgroundOpacityCommit={panelTheme.commitBackgroundOpacity}
           onThemeBackgroundMediaCommit={panelTheme.commitBackgroundMedia}
           onThemeBackgroundSlideshowCommit={panelTheme.commitBackgroundSlideshow}
+          onThemeBackgroundAudioTriggerCommit={panelTheme.commitBackgroundAudioTrigger}
           onThemeBackgroundMediaOrderCommit={panelTheme.commitBackgroundMediaOrder}
           showMediaTab={surface !== 'desktop' && !isTunnelActive()}
           showSystemFonts={panelSystemFontsAvailable(glassSurface) && isLocalPanelClient()}

@@ -8,6 +8,11 @@ import type { PanelLayout, PanelSurface, PanelWidgetSize } from './types';
 // transport and the shader's WebGL are mocked.
 const fetchMock = vi.fn();
 const shaderCovered: boolean[] = [];
+const audioTrigger = vi.hoisted(() => ({ choice: null as null | { mode: 'solid'; color: string }, enabled: [] as boolean[] }));
+vi.mock('./background/useAudioTrigger', () => ({ useAudioTrigger: (_settings: unknown, enabled: boolean) => {
+  audioTrigger.enabled.push(enabled);
+  return enabled ? audioTrigger.choice : null;
+} }));
 
 vi.mock('../api/panel', async importOriginal => ({
   ...await importOriginal<typeof import('../api/panel')>(),
@@ -70,7 +75,7 @@ function recordWith(surface: PanelSurface, size: PanelWidgetSize, config: Record
 }
 
 async function mountKiosk() {
-  render(
+  const mounted = render(
     <UiSettingsProvider serviceOnline={true} manageDom={false}>
       <PanelApp deviceId="panel-1" />
     </UiSettingsProvider>,
@@ -79,13 +84,38 @@ async function mountKiosk() {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(1_000);
   });
+  return mounted;
 }
 
 beforeEach(() => {
+  audioTrigger.choice = null;
+  audioTrigger.enabled = [];
   shaderCovered.length = 0;
   fetchMock.mockReset();
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
   vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+describe('PanelApp Audio Trigger background override', () => {
+  it('shows the selected audio background and restores the normal renderer without persisting it', async () => {
+    fetchMock.mockResolvedValue({ found: true, record: recordWith('lcd-round', '2x2round', { fit: true }) });
+    audioTrigger.choice = { mode: 'solid', color: '#ff0000' };
+    const mounted = await mountKiosk();
+    await waitFor(() => expect(document.querySelector('[data-audio-trigger-background]')).not.toBeNull());
+    const before = shaderCovered.length;
+    audioTrigger.choice = null;
+    mounted.rerender(<UiSettingsProvider serviceOnline={true} manageDom={false}><PanelApp deviceId="panel-1" /></UiSettingsProvider>);
+    expect(document.querySelector('[data-audio-trigger-background]')).toBeNull();
+    expect(shaderCovered.length).toBeGreaterThan(before);
+  });
+  it('suspends audio detection under a full opaque widget', async () => {
+    fetchMock.mockResolvedValue({ found: true, record: recordWith('lcd-round', '2x2round') });
+    audioTrigger.choice = { mode: 'solid', color: '#ff0000' };
+    await mountKiosk();
+    await waitFor(() => expect(shaderCovered.at(-1)).toBe(true));
+    expect(audioTrigger.enabled.at(-1)).toBe(false);
+    expect(document.querySelector('[data-audio-trigger-background]')).toBeNull();
+  });
 });
 
 afterEach(() => {

@@ -3,6 +3,7 @@ import { authFetchWithStatus, deleteService, fetchService, isForceLanMode, isLoc
 import { deriveDeviceLabel } from '../lib/platform';
 import { KRAKEN_PANEL_DPI, LEGACY_KRAKEN_SURFACE, NZXT_KRAKEN_FAMILY, type PanelConfigValue, type PanelLayout, type PanelSurface, type PanelWidgetSizeMode } from '../panel/types';
 import type { PresetApp, PresetAppConflict, SetPresetAppsResult } from './lighting';
+import type { AudioTriggerSettings } from '../panel/background/audioTrigger';
 
 // Init for the direct localhost fetches below. The phone-session cookie only
 // ever rides a same-origin request; cross-origin from the website the service
@@ -87,6 +88,7 @@ export interface DesktopImportDto {
 }
 
 export interface PanelDeviceRecord {
+  backgroundAudioTrigger?: AudioTriggerSettings | null;
   id: string;
   displayName: string;
   layout?: PanelLayout;
@@ -221,6 +223,7 @@ export interface PanelDeviceRecord {
 }
 
 export interface PanelDevicePatch {
+  backgroundAudioTrigger?: AudioTriggerSettings;
   displayName?: string;
   layout?: PanelLayout;
   themeMode?: string | null;
