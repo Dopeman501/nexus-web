@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from '../../lib/i18n';
-import { appAvailableForSurface, lookupApp } from '../widgets/registry';
+import { visibleD215PanelEntries } from './d215Panels';
 import { PanelOpaqueProvider } from '../widgets/common/PanelOpaqueContext';
-import { clampCircle, circleBounds, moveCircle, resizeCircle, type D215AlignmentGuides, type D215PanelCanvas, type D215ResizeCorner } from './d215PanelGeometry';
-import { MAX_D215_PANELS, type D215PanelInstance, type D215PanelsState } from './d215PanelTypes';
+import { clampCircle, circleBounds, moveCircle, resizeCircle, resizeCircleWithGuides, type D215AlignmentGuides, type D215PanelCanvas, type D215ResizeCorner } from './d215PanelGeometry';
+import { type D215PanelInstance, type D215PanelsState } from './d215PanelTypes';
 import styles from './D215PanelsLayer.module.scss';
 import { D215PanelFace } from './D215PanelFace';
 
 const DESIGN_SIDE = 190;
-const NO_GUIDES: D215AlignmentGuides = { vertical: [], horizontal: [] };
 const CORNERS = { nw: 'topLeft', ne: 'topRight', sw: 'bottomLeft', se: 'bottomRight' } as const;
 
 interface LayerProps {
@@ -67,16 +66,7 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
   const [draft, setDraft] = useState<Draft | null>(null);
   const sourceKey = useMemo(() => JSON.stringify(panels), [panels]);
   const scale = Number.isFinite(previewScale) ? Math.max(0.05, Math.min(1, previewScale)) : 1;
-  const singleInstances = new Set<string>();
-  const entries = panels.items.slice(0, MAX_D215_PANELS).flatMap(item => {
-    const app = lookupApp(item.type);
-    if (!app || !appAvailableForSurface(app.meta, 'lcd-round', { deviceTouch: false })) return [];
-    if (app.meta.singleInstance) {
-      if (singleInstances.has(app.meta.type)) return [];
-      singleInstances.add(app.meta.type);
-    }
-    return [{ item, app }];
-  });
+  const entries = visibleD215PanelEntries(panels);
 
   const cancel = useCallback(() => {
     const active = gesture.current;
@@ -149,10 +139,14 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
     const dx = event.clientX - active.x;
     const dy = event.clientY - active.y;
     if (Math.hypot(dx, dy) < 2 / scale) { setDraft(null); return null; }
+    const peers = entries.filter(entry => entry.item.id !== active.item.id).map(entry => entry.item);
     const next = active.corner
-      ? { item: resizeCircle(active.item, active.corner, dx, dy, canvas), guides: NO_GUIDES }
+      ? (() => {
+        const resized = resizeCircleWithGuides(active.item, active.corner, dx, dy, canvas, peers, 6 / scale);
+        return { item: resized.circle, guides: resized.guides };
+      })()
       : (() => {
-        const moved = moveCircle(active.item, dx, dy, canvas, entries.filter(entry => entry.item.id !== active.item.id).map(entry => entry.item), 6 / scale);
+        const moved = moveCircle(active.item, dx, dy, canvas, peers, 6 / scale);
         return { item: moved.circle, guides: moved.guides };
       })();
     setDraft(next);
@@ -225,6 +219,11 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
           data-d215-guide-axis="vertical" aria-hidden style={{ left: position }} />)}
         {editing && draft?.guides.horizontal.map(position => <div key={`h${position}`} className={styles.horizontalGuide}
           data-d215-guide-axis="horizontal" aria-hidden style={{ top: position }} />)}
+        {editing && draft?.guides.matchingSize && <div className={styles.matchingSize} data-d215-matching-size
+          style={{ left: draft.guides.matchingSize.left, top: draft.guides.matchingSize.top,
+            width: draft.guides.matchingSize.width, height: draft.guides.matchingSize.height }}>
+          <span>{t('devices.jungle-leopard-d215.panels.matchingSize')}</span>
+        </div>}
       </div>
     </PanelOpaqueProvider>
   );

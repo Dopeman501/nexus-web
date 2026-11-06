@@ -377,6 +377,13 @@
   flex-direction: column;
 }
 
+.d215PanelsStage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 // Hosts the portaled editor-docked widget cell. Lives at panel-root level,
 // outside the pager track, so the cell's `position: fixed` anchors to the
 // viewport even on page 2+ (where the track's transform would otherwise

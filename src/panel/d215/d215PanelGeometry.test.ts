@@ -6,6 +6,7 @@ import {
   moveCircle,
   nextCirclePlacement,
   resizeCircle,
+  resizeCircleWithGuides,
   type D215CircleGeometry,
   type D215PanelCanvas,
   type D215ResizeCorner,
@@ -166,5 +167,122 @@ describe('D215 circle geometry', () => {
     expect(() => moveCircle(original, 1, 1, landscape, others)).not.toThrow();
     expect(() => resizeCircle(original, 'ne' satisfies D215ResizeCorner, 10, -10, portrait)).not.toThrow();
     expect(() => nextCirclePlacement(others, landscape)).not.toThrow();
+  });
+});
+
+describe('D215 circle resize guides', () => {
+  const square = { width: 1000, height: 1000 };
+  const initial = { id: 'active', x: 0.5, y: 0.5, diameter: 0.2 };
+  const peer = { id: 'peer', x: 0.2, y: 0.2, diameter: 0.3 };
+
+  it('snaps to a nearby peer diameter and identifies both matching square bounds', () => {
+    const result = resizeCircleWithGuides(initial, 'se', 97, 97, square, [peer]);
+    expect(result.circle.diameter).toBe(0.3);
+    expect(result.guides.matchingSize).toEqual(circleBounds(peer, square));
+    expect(result.guides.vertical).toEqual([400, 700]);
+    expect(result.guides.horizontal).toEqual([400, 700]);
+    expect(circleBounds(result.circle, square)).toMatchObject({ left: 400, top: 400, width: 300, height: 300 });
+  });
+
+  it.each([landscape, portrait])('matches sizes in either orientation while retaining every opposite corner: %o', canvas => {
+    for (const corner of ['nw', 'ne', 'sw', 'se'] as const) {
+      const start = { ...circle, diameter: 0.3 };
+      const other = { ...peer, x: 0.6, y: 0.6, diameter: 0.4 };
+      const side = Math.min(canvas.width, canvas.height);
+      const delta = side * 0.1 - 3;
+      const result = resizeCircleWithGuides(start, corner, corner.endsWith('e') ? delta : -delta,
+        corner.startsWith('s') ? delta : -delta, canvas, [other]);
+      const before = circleBounds(start, canvas);
+      const after = circleBounds(result.circle, canvas);
+      expect(result.circle.diameter).toBeCloseTo(0.4);
+      expect(result.guides.matchingSize).toEqual(circleBounds(other, canvas));
+      expect(corner.endsWith('e') ? after.left : after.right).toBeCloseTo(corner.endsWith('e') ? before.left : before.right);
+      expect(corner.startsWith('s') ? after.top : after.bottom).toBeCloseTo(corner.startsWith('s') ? before.top : before.bottom);
+      expectInside(result.circle, canvas);
+    }
+  });
+
+  it('chooses the nearest feasible peer size and prioritizes an equal-size match over a nearby alignment', () => {
+    const near = { ...peer, id: 'near', diameter: 0.3 };
+    const farther = { ...peer, id: 'farther', diameter: 0.305 };
+    const alignment = { id: 'line', x: 0.8, y: 0.8, diameter: 0.196 };
+    const result = resizeCircleWithGuides(initial, 'se', 102, 102, square, [farther, near, alignment]);
+    expect(result.circle.diameter).toBe(0.3);
+    expect(result.guides.matchingSize).toEqual(circleBounds(near, square));
+  });
+
+  it('does not attract a far peer or report an unequal circle as matching', () => {
+    const result = resizeCircleWithGuides(initial, 'se', 80, 80, square, [peer]);
+    expect(result.circle).toEqual(resizeCircle(initial, 'se', 80, 80, square));
+    expect(result.guides).toEqual({ vertical: [], horizontal: [] });
+  });
+
+  it('supports the exact threshold and disables all snapping when the threshold is zero', () => {
+    const atThreshold = resizeCircleWithGuides(initial, 'se', 94, 94, square, [peer], 6);
+    expect(atThreshold.circle.diameter).toBe(0.3);
+    const free = resizeCircleWithGuides(initial, 'se', 97, 97, square, [peer], 0);
+    expect(free.circle).toEqual(resizeCircle(initial, 'se', 97, 97, square));
+    expect(free.guides).toEqual({ vertical: [], horizontal: [] });
+  });
+
+  it('does not snap back to the active circle when the caller includes itself or a same-id copy', () => {
+    const canvas = { width: 1000, height: 800 };
+    const start = { id: 'active', x: 0.27, y: 0.31, diameter: 0.2 };
+    const result = resizeCircleWithGuides(start, 'se', 1, 1, canvas, [start, { ...start }]);
+    expect(result.circle).toEqual(resizeCircle(start, 'se', 1, 1, canvas));
+    expect(result.guides.matchingSize).toBeUndefined();
+  });
+
+  it('continues to resize without peers and snaps the moving edge to the canvas center', () => {
+    const start = { id: 'active', x: 0.2, y: 0.2, diameter: 0.2 };
+    const result = resizeCircleWithGuides(start, 'se', 423.4, 423.4, landscape);
+    expect(circleBounds(result.circle, landscape).right).toBeCloseTo(840);
+    expect(result.guides.vertical).toContain(840);
+    expect(result.guides.matchingSize).toBeUndefined();
+    expectInside(result.circle, landscape);
+  });
+
+  it('shows a canvas edge guide while keeping the circle within its maximum available room', () => {
+    const start = { id: 'active', x: 0.6, y: 0.25, diameter: 0.4 };
+    const result = resizeCircleWithGuides(start, 'se', 410, 410, landscape);
+    expect(circleBounds(result.circle, landscape).bottom).toBeCloseTo(756);
+    expect(result.guides.horizontal).toContain(756);
+    expectInside(result.circle, landscape);
+  });
+
+  it('can align a moving edge to a peer edge without changing to that peer size', () => {
+    const start = { id: 'active', x: 0.2, y: 0.25, diameter: 0.2 };
+    const other = { id: 'peer', x: 0.6, y: 0.7, diameter: 0.4 };
+    const result = resizeCircleWithGuides(start, 'se', 442.2, 442.2, landscape, [other]);
+    const target = circleBounds(other, landscape).left;
+    expect(circleBounds(result.circle, landscape).right).toBeCloseTo(target);
+    expect(result.guides.vertical).toContain(target);
+    expect(result.guides.matchingSize).toBeUndefined();
+  });
+
+  it('can align a moving edge to a peer center when its diameter is different', () => {
+    const other = { id: 'peer', x: 0.7, y: 0.8, diameter: 0.12 };
+    const result = resizeCircleWithGuides(initial, 'se', 97, 97, square, [other]);
+    expect(circleBounds(result.circle, square).right).toBeCloseTo(700);
+    expect(result.guides.vertical).toContain(700);
+    expect(result.guides.matchingSize).toBeUndefined();
+  });
+
+  it('rejects an unreachable peer diameter even when it is within the snapping threshold', () => {
+    const result = resizeCircleWithGuides(initial, 'se', 398, 398, square, [{ ...peer, diameter: 0.603 }]);
+    expect(result.guides.matchingSize).toBeUndefined();
+    expect(circleBounds(result.circle, square).width).toBeLessThanOrEqual(600);
+    expectInside(result.circle, square);
+  });
+
+  it('matches the minimum size while leaving frozen inputs and peer collections unchanged', () => {
+    const start = Object.freeze({ ...initial, config: Object.freeze({ label: 'CPU' }) });
+    const others = Object.freeze([Object.freeze({ ...peer, diameter: 0.12 })]);
+    const result = resizeCircleWithGuides(start, 'se', -77, -77, square, others);
+    expect(result.circle.diameter).toBe(0.12);
+    expect(result.circle.config).toBe(start.config);
+    expect(result.guides.matchingSize).toEqual(circleBounds(others[0], square));
+    expect(start.diameter).toBe(0.2);
+    expectInside(result.circle, square);
   });
 });

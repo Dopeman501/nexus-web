@@ -34,6 +34,7 @@ interface PanelEmbedFrameProps {
   surface: PanelSurface;
   deviceFamily?: string;
   panelsEditing?: boolean;
+  widgetEditing?: boolean;
   captureRef?: Ref<PanelEmbedFrameHandle>;
   layout: PanelLayout;
   theme: SimulatorTheme;
@@ -223,6 +224,7 @@ export function PanelEmbedFrame({
   surface,
   deviceFamily,
   panelsEditing = false,
+  widgetEditing = false,
   captureRef,
   layout,
   theme,
@@ -390,6 +392,7 @@ export function PanelEmbedFrame({
       surface,
       deviceFamily,
       panelsEditing,
+      widgetEditing,
       deviceTouch,
       displayBound,
       genericDisplay,
@@ -414,8 +417,8 @@ export function PanelEmbedFrame({
   }, [childReady]);
 
   useEffect(() => {
-    if (childReady) post({ type: 'simulator/set-panels-editor', deviceFamily, panelsEditing });
-  }, [childReady, deviceFamily, panelsEditing, post]);
+    if (childReady) post({ type: 'simulator/set-panels-editor', deviceFamily, panelsEditing, widgetEditing });
+  }, [childReady, deviceFamily, panelsEditing, widgetEditing, post]);
 
   // Mirror parent layout changes to the iframe, except when the structural
   // content matches what the iframe last emitted (the change is just the

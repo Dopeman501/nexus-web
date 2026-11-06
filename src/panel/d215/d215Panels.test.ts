@@ -69,6 +69,22 @@ describe('D215 independent circle state', () => {
     expect(original.d215Panels).toBeUndefined();
   });
 
+  it('keeps a legacy visible Widget visible when the first circle or Panels toggle is enabled', () => {
+    const original = seed();
+    expect(addD215Panel(original, 'monitoring', 'cpu', canvas).d215Widget).toMatchObject({ enabled: true, scale: 1 });
+    expect(setD215PanelsEnabled(original, true).d215Widget).toMatchObject({ enabled: true, scale: 1 });
+    expect(original.d215Widget).toBeUndefined();
+  });
+
+  it('keeps a legacy Panels-only Widget hidden when Panels is disabled, preserving independent toggles', () => {
+    const original = { ...seed(), d215Panels: { enabled: true, items: [] } };
+    const disabled = setD215PanelsEnabled(original, false);
+    expect(disabled.d215Widget).toMatchObject({ enabled: false, scale: 1 });
+    expect(disabled.d215Panels?.enabled).toBe(false);
+    expect(setD215PanelsEnabled(disabled, true).d215Widget?.enabled).toBe(false);
+    expect(original.d215Widget).toBeUndefined();
+  });
+
   it('keeps duplicate widget types independently configured, then restores Widgets without deleting circles', () => {
     const two = addD215Panel(addD215Panel(seed(), 'monitoring', 'cpu', canvas), 'monitoring', 'gpu', canvas);
     const configured = updateD215PanelConfig(two, 'cpu', { label: 'CPU', gauge: { color: 'red' } });
@@ -88,6 +104,15 @@ describe('D215 independent circle state', () => {
     expect(addD215Panel(layout, 'clock', 'main', canvas)).toBe(layout);
     expect(addD215Panel(layout, 'clock', 'one', canvas)).toBe(layout);
     expect(addD215Panel(layout, 'exclusive', 'two', canvas)).toBe(layout);
+  });
+
+  it('reserves a visible playlist single-instance app before adding a circle', () => {
+    const original = seed();
+    const layout = { ...original, d215Widget: { enabled: true, x: 0.5, y: 0.5, scale: 0.6 },
+      widgetPlaylist: { ...original.widgetPlaylist!, types: ['clock', 'exclusive'] } };
+    expect(addD215Panel(layout, 'exclusive', 'one', canvas)).toBe(layout);
+    const hidden = { ...layout, d215Widget: { ...layout.d215Widget, enabled: false } };
+    expect(addD215Panel(hidden, 'exclusive', 'one', canvas).d215Panels?.items).toHaveLength(1);
   });
 
   it('sanitizes invalid wire state without discarding an unavailable saved SDK instance', () => {

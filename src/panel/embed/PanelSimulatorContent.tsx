@@ -28,6 +28,7 @@ export function PanelSimulatorContent() {
           surface={sim.surface}
           deviceFamily={sim.deviceFamily}
           panelsEditing={sim.panelsEditing}
+          widgetEditing={sim.widgetEditing}
           deviceId={sim.deviceId ?? undefined}
           deviceTouch={sim.deviceTouch}
           deviceDpi={sim.dpi}

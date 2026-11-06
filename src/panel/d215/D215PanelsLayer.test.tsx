@@ -153,6 +153,24 @@ describe('D215PanelsLayer rendering', () => {
 });
 
 describe('D215PanelsLayer movement and resizing', () => {
+  it('shows matching-size guides during resize and saves the matched diameter once', () => {
+    const panels = state();
+    panels.items = panels.items.map(item => item.id === 'b' ? { ...item, diameter: 0.6 } : item);
+    const { circle, container, onChange } = mount(panels);
+    const handle = circle('a').querySelector('[data-corner="se"]')!;
+    press(handle, 400, 350);
+    move(handle, 499, 449);
+    expect(circle('a')).toHaveStyle({ width: '300px', height: '300px' });
+    expect(container.querySelector('[data-d215-guide-axis="vertical"]')).not.toBeNull();
+    expect(container.querySelector('[data-d215-guide-axis="horizontal"]')).not.toBeNull();
+    expect(container.querySelector('[data-d215-matching-size]')).toHaveStyle({ width: '300px', height: '300px' });
+    expect(onChange).not.toHaveBeenCalled();
+    up(handle, 499, 449);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0].items[0]).toMatchObject({ diameter: 0.6 });
+    expect(container.querySelector('[data-d215-matching-size]')).toBeNull();
+  });
+
   it('shows center guides while moving and commits exactly once on release', () => {
     const { circle, container, onChange, onSelect } = mount();
     const item = circle('a');

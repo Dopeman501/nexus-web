@@ -1,6 +1,13 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PanelLayout, PanelWidget, PanelWidgetSize } from './types';
+import * as widgetRegistry from './widgets/registry';
+import { useReportOpaque } from './widgets/common/PanelOpaqueContext';
+import type { WidgetProps } from './widgets/types';
+
+vi.mock('./background/PanelBackgroundShader', () => ({
+  PanelBackgroundShader: ({ covered }: { covered?: boolean }) => <div data-testid="test-shader" data-covered={String(covered)} />,
+}));
 
 // The kiosk composition end to end: PanelApp -> usePanelRecord ->
 // usePanelLayout -> PanelContent's repagination, with only the transport
@@ -140,6 +147,76 @@ afterEach(() => {
 });
 
 describe('kiosk layout write-back', () => {
+  it('never mounts a second single-instance Widget worker from an imported overlap', async () => {
+    setViewport(1680, 756);
+    const original = widgetRegistry.lookupApp;
+    const clock = original('clock')!;
+    const ImportedInstance = () => <div data-testid="one-sdk-instance" />;
+    vi.spyOn(widgetRegistry, 'lookupApp').mockImplementation(type => type === 'clock' ? {
+      ...clock, meta: { ...clock.meta, singleInstance: true }, Widget: ImportedInstance,
+    } : original(type));
+    const stored: PanelLayout = { layoutSchemaVersion: 2, surface: 'lcd-wide',
+      pages: [{ id: 'p', widgets: [widget('main', 'clock', '4x2', 0)] }],
+      d215Widget: { enabled: true, x: 0.5, y: 0.5, scale: 0.6 },
+      d215Panels: { enabled: true, items: [{ id: 'circle', type: 'clock', x: 0.7, y: 0.5, diameter: 0.4 }] },
+    };
+    fetchMock.mockResolvedValue({ found: true, record: { ...recordWith(stored), capabilities: {
+      surface: 'lcd-wide', family: 'jungle-leopard-d215', touch: false, cssWidth: 1680, cssHeight: 756, dpr: 1,
+    } } });
+    await mountKiosk();
+    expect(document.querySelectorAll('[data-testid="one-sdk-instance"]')).toHaveLength(1);
+    expect(document.querySelector('[data-d215-panel-id="circle"]')).not.toBeNull();
+    expect(document.querySelector('[data-panel-widget-id="main"]')).toBeNull();
+    expect(stored.pages[0].widgets[0].id).toBe('main');
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([[true, 1, true], [true, 0.6, false], [false, 1, false]] as const)(
+    'only pauses the background for a visible full-canvas opaque Widget (enabled=%s, scale=%s)',
+    async (enabled, scale, covered) => {
+      setViewport(1680, 756);
+      const original = widgetRegistry.lookupApp;
+      const clock = original('clock')!;
+      const OpaqueWidget = ({ widget }: WidgetProps) => {
+        useReportOpaque(widget.id, true);
+        return <div data-testid="opaque-widget" />;
+      };
+      vi.spyOn(widgetRegistry, 'lookupApp').mockImplementation(type => type === 'clock' ? {
+        ...clock, Widget: OpaqueWidget,
+      } : original(type));
+      const stored: PanelLayout = { layoutSchemaVersion: 2, surface: 'lcd-wide',
+        pages: [{ id: 'p', widgets: [widget('main', 'clock', '4x2', 0)] }],
+        d215Widget: { enabled, x: 0.5, y: 0.5, scale }, d215Panels: { enabled: true, items: [] },
+      };
+      fetchMock.mockResolvedValue({ found: true, record: { ...recordWith(stored), backgroundMode: 'shader', capabilities: {
+        surface: 'lcd-wide', family: 'jungle-leopard-d215', touch: false, cssWidth: 1680, cssHeight: 756, dpr: 1,
+      } } });
+      await mountKiosk();
+      expect(document.querySelector('[data-testid="test-shader"]')).toHaveAttribute('data-covered', String(covered));
+      expect(document.querySelectorAll('[data-testid="opaque-widget"]')).toHaveLength(enabled ? 1 : 0);
+    },
+  );
+
+  it.each([
+    [false, false], [true, false], [false, true], [true, true],
+  ])('independently renders one Widget=%s and Panels=%s without writing the layout', async (widgetEnabled, panelsEnabled) => {
+    setViewport(1680, 756);
+    const stored = { layoutSchemaVersion: 2, surface: 'lcd-wide',
+      pages: [{ id: 'main-page', widgets: [widget('main', 'clock', '4x2', 0)] }],
+      d215Widget: { enabled: widgetEnabled, x: 0.4, y: 0.5, scale: 0.6 },
+      d215Panels: { enabled: panelsEnabled, items: [{ id: 'circle', type: 'calendar', x: 0.7, y: 0.5, diameter: 0.4 }] },
+    } as PanelLayout;
+    fetchMock.mockResolvedValue({ found: true, record: { ...recordWith(stored), capabilities: {
+      surface: 'lcd-wide', family: 'jungle-leopard-d215', touch: false, cssWidth: 1680, cssHeight: 756, dpr: 1,
+    } } });
+    await mountKiosk();
+    expect(document.querySelectorAll('[data-panel-widget-id="main"]')).toHaveLength(widgetEnabled ? 1 : 0);
+    expect(document.querySelectorAll('[data-d215-panel-id="circle"]')).toHaveLength(panelsEnabled ? 1 : 0);
+    expect(document.querySelectorAll('[data-d215-widget-frame]')).toHaveLength(widgetEnabled ? 1 : 0);
+    expect(patchMock).not.toHaveBeenCalled();
+    expect(stored.pages[0].widgets).toHaveLength(1);
+  });
+
   it.each([
     ['jungle-leopard-d215', true, 6],
     ['jungle-leopard-d215', false, 0],

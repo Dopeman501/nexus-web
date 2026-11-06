@@ -15,7 +15,9 @@ import { INERT_PANEL_RECORD, usePanelRecord, type PanelRecordState } from './eng
 import { usePanelLayout } from './engine/usePanelLayout';
 import { JUNGLE_LEOPARD_D215_FAMILY } from './types';
 import { D215PanelsLayer } from './d215/D215PanelsLayer';
-import { readD215Panels } from './d215/d215Panels';
+import { readD215Panels, visibleD215PanelEntries } from './d215/d215Panels';
+import { readD215Widget } from './d215/d215Widget';
+import { D215WidgetFrame } from './d215/D215WidgetFrame';
 import { useOemAppSeed } from './engine/useOemAppSeed';
 import { useAppsChangedSync } from './engine/useAppsChangedSync';
 import { useFlashWidgets } from './engine/useFlashWidgets';
@@ -481,6 +483,7 @@ export function PanelContent({
   surface,
   deviceFamily,
   panelsEditing = false,
+  widgetEditing = false,
   glassSurface = surface,
   deviceId,
   deviceTouch,
@@ -510,6 +513,7 @@ export function PanelContent({
   surface: PanelSurface;
   deviceFamily?: string;
   panelsEditing?: boolean;
+  widgetEditing?: boolean;
   // The physical glass when Widget size lays it out as another surface.
   glassSurface?: PanelSurface;
   deviceId?: string;
@@ -567,8 +571,10 @@ export function PanelContent({
   usePhonePanelManifest(kioskBehavior && surface === 'phone');
   const { layout: fullLayout, loaded, saveForbidden, hydrated, setLayout: setFullLayout } = layoutState;
   const d215Panels = useMemo(() => readD215Panels(fullLayout.d215Panels), [fullLayout.d215Panels]);
-  const showD215Panels = (deviceFamily ?? recordState.record?.capabilities?.family) === JUNGLE_LEOPARD_D215_FAMILY
-    && (surface === 'lcd-wide' || surface === 'lcd-portrait') && d215Panels.enabled;
+  const isD215Composition = (deviceFamily ?? recordState.record?.capabilities?.family) === JUNGLE_LEOPARD_D215_FAMILY
+    && (surface === 'lcd-wide' || surface === 'lcd-portrait');
+  const showD215Panels = isD215Composition && d215Panels.enabled;
+  const d215Widget = useMemo(() => readD215Widget(fullLayout.d215Widget, d215Panels.enabled), [fullLayout.d215Widget, d215Panels.enabled]);
   const genericDisplay = genericDisplayOverride ?? isGenericDisplayPanel(glassSurface, recordState.record?.capabilities?.family, displayBound);
   // A mouse-only generic display renders its first page only; later stored pages are written back untouched.
   const genericOnePage = genericSinglePage(genericDisplay, surface, deviceTouch);
@@ -1228,7 +1234,7 @@ export function PanelContent({
     playlistTypes,
     widgetPlaylist.interval,
     widgetPlaylist.shuffle,
-    simulator && Boolean(simulatorSelectedWidgetId),
+    (simulator && Boolean(simulatorSelectedWidgetId)) || (isD215Composition && !d215Widget.enabled),
     widgetPlaylist.cursor,
   );
   // The device page steps its prev/next arrows from what the preview shows.
@@ -1300,7 +1306,15 @@ export function PanelContent({
   // An opaque tile filling a single-widget panel hides the background, so it
   // stops animating.
   const shownSingleWidget = isSingleWidgetSurface(surface) ? allFiltered[0]?.widgets[0] : undefined;
-  const backgroundCovered = !showD215Panels && shownSingleWidget !== undefined && opaqueWidgetIds.has(shownSingleWidget.id) && !immersiveSeeThrough;
+  const shownWidgetApp = shownSingleWidget ? lookupApp(shownSingleWidget.type) : undefined;
+  // Imported state must not start a second worker for a one-instance SDK app.
+  // The foreground Panels retain priority; authored conflicts are rejected by the service.
+  const visibleCircles = showD215Panels ? visibleD215PanelEntries(d215Panels) : [];
+  const widgetConflictsWithCircle = shownWidgetApp?.meta.singleInstance
+    && visibleCircles.some(({ app }) => app.meta.type === shownWidgetApp.meta.type);
+  const showD215Widget = isD215Composition && d215Widget.enabled && shownSingleWidget !== undefined && !widgetConflictsWithCircle;
+  const backgroundCovered = (!isD215Composition || (showD215Widget && d215Widget.scale === 1 && !(simulator && widgetEditing)))
+    && shownSingleWidget !== undefined && opaqueWidgetIds.has(shownSingleWidget.id) && !immersiveSeeThrough;
   useEffect(() => {
     if (simulator) onSimulatorBackgroundCovered?.(backgroundCovered);
   }, [simulator, backgroundCovered, onSimulatorBackgroundCovered]);
@@ -2239,6 +2253,155 @@ export function PanelContent({
     }
   }, [paginatedLayout, touch, widgetById, embedded, surface, singlePage, setDraggingPinnableType, pinnedTail]);
 
+  const widgetStage = (
+    <div className={styles.panelStage}>
+      <div className={styles.panelStagePages}>
+        <PanelOpaqueProvider value={reportOpaque}>
+        <SortableContext items={allFlatIds} strategy={projectedLayoutStrategy}>
+        <PanelPager
+          pages={allFiltered}
+          activeIndex={Math.min(activePageIndex, pageCount - 1)}
+          onActiveChange={handlePageChange}
+          swipeEnabled={!sheetMode && !dragArmedId && !freeformActive}
+          renderPage={page => (
+            <>
+              <div
+                data-panel-grid
+                className={`${styles.grid} ${touch.rearranging ? styles.gridRearranging : ''}`}
+                style={customTextStyle}
+              >
+                {page.widgets.map(w => (
+                  <ErrorBoundary key={w.id} label={w.type}>
+                    <PanelTouchCell
+                      widget={w}
+                      deviceId={deviceId}
+                      surface={surface}
+                      deviceTouch={cellTouch}
+                      rearranging={touch.rearranging}
+                      pressHint={!sheetMode && touch.pressedWidgetId === w.id}
+                      dimmed={Boolean(contextMenuWidgetId) && contextMenuWidgetId !== w.id}
+                      editorDockMotion={editorDockSupported && sheetMode === 'settings' && editorDockMotion?.widgetId === w.id ? editorDockMotion : null}
+                      editorDockPortal={editorDockPortalEl}
+                      dragOverlaySlot={dragOverlaySlot}
+                      flash={flashedWidgets.has(w.id)}
+                      entrance={entranceWidgets.has(w.id)}
+                      isDragSource={activeDragId === w.id}
+                      resizeMotion={!sheetMode && resizeMotionWidgetId === w.id}
+                      selectedSlot={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? selectedMonitoringSlot : undefined}
+                      onSelectSlot={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? setSelectedMonitoringSlot : undefined}
+                      editView={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? deckEditView : undefined}
+                      onEditViewChange={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? setDeckEditView : undefined}
+                      onUpdate={(lookupApp(w.type)?.meta.persistsFromTile
+                        || (sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection))
+                        ? (cfg => updateWidgetConfig(w.id, cfg)) : undefined}
+                      editorPreview={simulator}
+                      clickthrough={embedded && surface === 'desktop' && Boolean(onSectionNavigate) && isDashboardClickthroughType(w.type)}
+                      movable={dragEditable}
+                      locked={lockedOf()}
+                      lockActivationFor={lockActivationFor}
+                      onLockDragChange={setLockDragging}
+                      inert={restricted && !restrictedAllowsWidget(w.type)}
+                      restricted={restricted}
+                      onContextMenu={dragEditable && !(freeformActive && w.id === freeformId) ? e => touch.handleContextMenu(e, w) : (e => e.preventDefault())}
+                      resizeSelected={freeformActive && w.id === freeformId}
+                      cellPointers={!dragEditable ? noopCellPointers : freeformActive ? (w.id === freeformId ? freeformTapPointers : noopCellPointers) : touch.bindCellPointers(w)}
+                      // Single-widget sim surfaces (Q-series) can't reach
+                      // onCellTap via the pointer pipeline; a plain
+                      // click opens the edit sheet from an iframe tap.
+                      onSimulatorClick={simulator && !dragEditable ? () => onSimulatorWidgetClicked?.(w.id) : undefined}
+                      // Device-page preview only: nothing else says a
+                      // widget in the canvas is click-to-edit (NEX-6),
+                      // so hovering one fades in a full-cell notice.
+                      editHint={simulator && !touch.rearranging && !activeDragId && simulatorSelectedWidgetId !== w.id}
+                      backgroundSplit={backgroundMenuEnabled && singleSurface ? splitOrientationOf(w) : undefined}
+                      onEditBackground={backgroundMenuEnabled && singleSurface ? onSimulatorBackgroundMenu : undefined}
+                      // Device-page preview only: hovering the widget
+                      // marked immersive-on-load frames it and names
+                      // the mark, so the canvas says which one opens.
+                      immersiveOnLoad={simulator && isImmersiveOnLoadWidget(paginatedLayout, w.id)}
+                      previewLayout={previewLayout}
+                      onSectionNavigate={embedded && surface === 'desktop' ? onSectionNavigate : undefined}
+                      onConfigureWidget={openWidgetSettings}
+                      moreActions={showWidgetMoreActions({ embedded, surface, simulator, editable: dragEditable, busy: Boolean(sheetMode) || freeformActive || Boolean(activeDragId) || Boolean(dragArmedId) }) ? {
+                        open: touch.ctxMenu?.widget.id === w.id,
+                        onOpen: (x, y) => touch.openCtxMenu(w, x, y),
+                        onClose: touch.closeCtxMenu,
+                      } : undefined}
+                      onEnterImmersiveWidget={canEnterImmersive && (!restricted || restrictedAllowsWidget(w.type)) && widgetSupportsImmersiveOnLoad(w.type, isLandscape)
+                        ? (widget) => enterImmersive(widget.id) : undefined}
+                    />
+                  </ErrorBoundary>
+                ))}
+                {cornerTarget && !activeDragId && !dragArmedId && page.widgets.some(w => w.id === cornerTarget.id) ? (
+                  <FreeformResizeFrame
+                    widget={page.widgets.find(w => w.id === cornerTarget.id) ?? cornerTarget}
+                    label={t(freeformDef?.meta.i18nKey ?? '') || cornerTarget.type}
+                    hover={!freeformActive}
+                    touch={kioskBehavior && surfaceSupportsTouch(surface, deviceTouch)}
+                    room={cornerRooms ?? NO_ROOM}
+                    onBegin={beginResize}
+                    onUpdate={freeform.update}
+                    onStep={freeform.step}
+                    onEnd={endResize}
+                    onCancel={cancelResize}
+                    onExit={exitFreeform}
+                  />
+                ) : null}
+                {activeDragId && allCellsForPage(page, capacity).map(cell => (
+                  <EmptyCellDroppable
+                    key={`${page.id}:${cell.col}:${cell.row}`}
+                    pageId={page.id}
+                    col={cell.col}
+                    row={cell.row}
+                  />
+                ))}
+                {activeDragId ? (
+                  <DragTargetHighlight
+                    pageId={page.id}
+                    activeWidgetId={activeDragId}
+                    paginatedLayout={paginatedLayout}
+                    overIdSignal={overIdTick}
+                    overIdRef={currentOverIdRef}
+                    invalid={dropRefused}
+                  />
+                ) : null}
+              </div>
+              {backgroundMenuEnabled && singleSurface && page.widgets.length === 0 && onSimulatorBackgroundMenu && (
+                <BackgroundSplitHint
+                  // eslint-disable-next-line i18next/no-literal-string -- orientation enum value
+                  orientation="stacked"
+                  round={surfaceDisplayShape(surface) === 'round'}
+                  widgetHalf={false}
+                  onActivate={onSimulatorBackgroundMenu}
+                />
+              )}
+              {mouseEditable && page.widgets.length === 0 && (
+                <div className={styles.emptyPageAction} data-panel-hit="true">
+                  <button type="button" className="chip-action" onClick={() => openSheet('catalog')}>
+                    <Plus size={14} aria-hidden />
+                    <span>{t('panel.addWidgets')}</span>
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        />
+        </SortableContext>
+        </PanelOpaqueProvider>
+        {pageCount > 1 && (
+          <div className={styles.panelPageIndicatorPosition}>
+            <PanelPageIndicator
+              total={pageCount}
+              active={Math.min(activePageIndex, pageCount - 1)}
+              visibilityToken={activePageIndex}
+              onSelect={mouseEditable ? handlePageChange : undefined}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <TouchViaPointerContext.Provider value={mouseAsTouch}>
     <PanelRestrictedProvider value={restricted}>
@@ -2445,160 +2608,24 @@ export function PanelContent({
           <PanelLoadingGate surface={surface} />
         ) : (
           <>
-            {showD215Panels ? (
-              <div className={styles.panelStage}>
+            {isD215Composition ? (showD215Widget && (
+              <D215WidgetFrame key={`${deviceId ?? ''}:${shownSingleWidget?.id ?? ''}`}
+                state={d215Widget} deviceId={deviceId} editing={simulator && widgetEditing && !restricted}
+                selected previewScale={simulatorPreviewScale}
+                label={shownWidgetApp ? t(shownWidgetApp.meta.i18nKey) : undefined}
+                peers={visibleCircles.map(({ item }) => item)}
+                onSelect={() => { if (shownSingleWidget) onSimulatorWidgetClicked?.(shownSingleWidget.id); }}
+                onChange={next => setFullLayout({ ...fullLayout, d215Widget: next })}>
+                {widgetStage}
+              </D215WidgetFrame>
+            )) : widgetStage}
+            {showD215Panels && (
+              <div className={styles.d215PanelsStage}>
                 <D215PanelsLayer panels={d215Panels} themeMode={resolvedThemeMode}
                   deviceId={deviceId} editing={simulator && panelsEditing && !restricted} selectedId={simulatorSelectedWidgetId}
                   previewScale={simulatorPreviewScale} onSelect={onSimulatorWidgetClicked}
                   onChange={next => setFullLayout({ ...fullLayout, d215Panels: next })} />
               </div>
-            ) : (
-            <div className={styles.panelStage}>
-              <div className={styles.panelStagePages}>
-                <PanelOpaqueProvider value={reportOpaque}>
-                <SortableContext items={allFlatIds} strategy={projectedLayoutStrategy}>
-                <PanelPager
-                  pages={allFiltered}
-                  activeIndex={Math.min(activePageIndex, pageCount - 1)}
-                  onActiveChange={handlePageChange}
-                  swipeEnabled={!sheetMode && !dragArmedId && !freeformActive}
-                  renderPage={page => (
-                    <>
-                      <div
-                        data-panel-grid
-                        className={`${styles.grid} ${touch.rearranging ? styles.gridRearranging : ''}`}
-                        style={customTextStyle}
-                      >
-                        {page.widgets.map(w => (
-                          <ErrorBoundary key={w.id} label={w.type}>
-                            <PanelTouchCell
-                              widget={w}
-                              deviceId={deviceId}
-                              surface={surface}
-                              deviceTouch={cellTouch}
-                              rearranging={touch.rearranging}
-                              pressHint={!sheetMode && touch.pressedWidgetId === w.id}
-                              dimmed={Boolean(contextMenuWidgetId) && contextMenuWidgetId !== w.id}
-                              editorDockMotion={editorDockSupported && sheetMode === 'settings' && editorDockMotion?.widgetId === w.id ? editorDockMotion : null}
-                              editorDockPortal={editorDockPortalEl}
-                              dragOverlaySlot={dragOverlaySlot}
-                              flash={flashedWidgets.has(w.id)}
-                              entrance={entranceWidgets.has(w.id)}
-                              isDragSource={activeDragId === w.id}
-                              resizeMotion={!sheetMode && resizeMotionWidgetId === w.id}
-                              selectedSlot={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? selectedMonitoringSlot : undefined}
-                              onSelectSlot={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? setSelectedMonitoringSlot : undefined}
-                              editView={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? deckEditView : undefined}
-                              onEditViewChange={sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection ? setDeckEditView : undefined}
-                              onUpdate={(lookupApp(w.type)?.meta.persistsFromTile
-                                || (sheetMode === 'settings' && editingWidgetId === w.id && lookupApp(w.type)?.meta.usesSlotSelection))
-                                ? (cfg => updateWidgetConfig(w.id, cfg)) : undefined}
-                              editorPreview={simulator}
-                              clickthrough={embedded && surface === 'desktop' && Boolean(onSectionNavigate) && isDashboardClickthroughType(w.type)}
-                              movable={dragEditable}
-                              locked={lockedOf()}
-                              lockActivationFor={lockActivationFor}
-                              onLockDragChange={setLockDragging}
-                              inert={restricted && !restrictedAllowsWidget(w.type)}
-                              restricted={restricted}
-                              onContextMenu={dragEditable && !(freeformActive && w.id === freeformId) ? e => touch.handleContextMenu(e, w) : (e => e.preventDefault())}
-                              resizeSelected={freeformActive && w.id === freeformId}
-                              cellPointers={!dragEditable ? noopCellPointers : freeformActive ? (w.id === freeformId ? freeformTapPointers : noopCellPointers) : touch.bindCellPointers(w)}
-                              // Single-widget sim surfaces (Q-series) can't reach
-                              // onCellTap via the pointer pipeline; a plain
-                              // click opens the edit sheet from an iframe tap.
-                              onSimulatorClick={simulator && !dragEditable ? () => onSimulatorWidgetClicked?.(w.id) : undefined}
-                              // Device-page preview only: nothing else says a
-                              // widget in the canvas is click-to-edit (NEX-6),
-                              // so hovering one fades in a full-cell notice.
-                              editHint={simulator && !touch.rearranging && !activeDragId && simulatorSelectedWidgetId !== w.id}
-                              backgroundSplit={backgroundMenuEnabled && singleSurface ? splitOrientationOf(w) : undefined}
-                              onEditBackground={backgroundMenuEnabled && singleSurface ? onSimulatorBackgroundMenu : undefined}
-                              // Device-page preview only: hovering the widget
-                              // marked immersive-on-load frames it and names
-                              // the mark, so the canvas says which one opens.
-                              immersiveOnLoad={simulator && isImmersiveOnLoadWidget(paginatedLayout, w.id)}
-                              previewLayout={previewLayout}
-                              onSectionNavigate={embedded && surface === 'desktop' ? onSectionNavigate : undefined}
-                              onConfigureWidget={openWidgetSettings}
-                              moreActions={showWidgetMoreActions({ embedded, surface, simulator, editable: dragEditable, busy: Boolean(sheetMode) || freeformActive || Boolean(activeDragId) || Boolean(dragArmedId) }) ? {
-                                open: touch.ctxMenu?.widget.id === w.id,
-                                onOpen: (x, y) => touch.openCtxMenu(w, x, y),
-                                onClose: touch.closeCtxMenu,
-                              } : undefined}
-                              onEnterImmersiveWidget={canEnterImmersive && (!restricted || restrictedAllowsWidget(w.type)) && widgetSupportsImmersiveOnLoad(w.type, isLandscape)
-                                ? (widget) => enterImmersive(widget.id) : undefined}
-                            />
-                          </ErrorBoundary>
-                        ))}
-                        {cornerTarget && !activeDragId && !dragArmedId && page.widgets.some(w => w.id === cornerTarget.id) ? (
-                          <FreeformResizeFrame
-                            widget={page.widgets.find(w => w.id === cornerTarget.id) ?? cornerTarget}
-                            label={t(freeformDef?.meta.i18nKey ?? '') || cornerTarget.type}
-                            hover={!freeformActive}
-                            touch={kioskBehavior && surfaceSupportsTouch(surface, deviceTouch)}
-                            room={cornerRooms ?? NO_ROOM}
-                            onBegin={beginResize}
-                            onUpdate={freeform.update}
-                            onStep={freeform.step}
-                            onEnd={endResize}
-                            onCancel={cancelResize}
-                            onExit={exitFreeform}
-                          />
-                        ) : null}
-                        {activeDragId && allCellsForPage(page, capacity).map(cell => (
-                          <EmptyCellDroppable
-                            key={`${page.id}:${cell.col}:${cell.row}`}
-                            pageId={page.id}
-                            col={cell.col}
-                            row={cell.row}
-                          />
-                        ))}
-                        {activeDragId ? (
-                          <DragTargetHighlight
-                            pageId={page.id}
-                            activeWidgetId={activeDragId}
-                            paginatedLayout={paginatedLayout}
-                            overIdSignal={overIdTick}
-                            overIdRef={currentOverIdRef}
-                            invalid={dropRefused}
-                          />
-                        ) : null}
-                      </div>
-                      {backgroundMenuEnabled && singleSurface && page.widgets.length === 0 && onSimulatorBackgroundMenu && (
-                        <BackgroundSplitHint
-                          // eslint-disable-next-line i18next/no-literal-string -- orientation enum value
-                          orientation="stacked"
-                          round={surfaceDisplayShape(surface) === 'round'}
-                          widgetHalf={false}
-                          onActivate={onSimulatorBackgroundMenu}
-                        />
-                      )}
-                      {mouseEditable && page.widgets.length === 0 && (
-                        <div className={styles.emptyPageAction} data-panel-hit="true">
-                          <button type="button" className="chip-action" onClick={() => openSheet('catalog')}>
-                            <Plus size={14} aria-hidden />
-                            <span>{t('panel.addWidgets')}</span>
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                />
-                </SortableContext>
-                </PanelOpaqueProvider>
-                {pageCount > 1 && (
-                  <div className={styles.panelPageIndicatorPosition}>
-                    <PanelPageIndicator
-                      total={pageCount}
-                      active={Math.min(activePageIndex, pageCount - 1)}
-                      visibilityToken={activePageIndex}
-                      onSelect={mouseEditable ? handlePageChange : undefined}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
             )}
             {kioskBehavior && (surfaceSupportsTouch(surface, deviceTouch) || mouseEditable) && (
               <PanelActionsTray

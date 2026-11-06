@@ -103,6 +103,8 @@ export interface PanelWidgetCatalogProps {
   canAddSize?: (size: PanelWidgetSize) => boolean;
   /** The host's capacity reason when its limit is a count rather than grid space. */
   fullHint?: string;
+  /** Host-owned conflicts that prevent adding or enabling a widget type. */
+  blockedTypeHints?: Readonly<Record<string, string>>;
   // Widget types already on this panel. A type whose meta sets singleInstance
   // is dimmed once one is placed; every other type ignores this.
   placedTypes?: readonly string[];
@@ -147,6 +149,7 @@ export function PanelWidgetCatalog({
   onEditWidget,
   canAddSize,
   fullHint,
+  blockedTypeHints,
   placedTypes,
   searchable = true,
   variant = 'panel-sheet',
@@ -174,6 +177,9 @@ export function PanelWidgetCatalog({
     const id = setTimeout(() => setAdded(prev => (prev && prev.stage === 'added' ? { ...prev, stage: 'edit' } : prev)), ADDED_BEAT_MS);
     return () => clearTimeout(id);
   }, [added]);
+  useEffect(() => {
+    if (added && blockedTypeHints?.[added.type] !== undefined) setAdded(null);
+  }, [added, blockedTypeHints]);
   const [preferredSize, setPreferredSize] = usePersistentState<CatalogPreferredSize>(CATALOG_SIZE_KEY, '2x2');
   const changePreferredSize = (key: string) => setPreferredSize(key === '4x2' ? '4x2' : '2x2');
   const sizePrefOptions = SIZE_PREF_KEYS.map(size => ({
@@ -314,13 +320,17 @@ export function PanelWidgetCatalog({
     fitCache.set(size, value);
     return value;
   };
-  const commitPlaylist = (order: string[], enabled: ReadonlySet<string>) =>
-    playlist?.onChange({ order, types: order.filter(type => enabled.has(type)) });
+  const commitPlaylist = (order: string[], enabled: ReadonlySet<string>) => {
+    if (!playlist) return;
+    playlist.onChange({ order, types: order.filter(type => enabled.has(type)
+      && (blockedTypeHints?.[type] === undefined || playlist.enabled.includes(type))) });
+  };
   const togglePlaylistType = (type: string) => {
     if (!playlist || !playlistOrder) return;
     const enabled = new Set(playlist.enabled);
     if (enabled.has(type)) enabled.delete(type);
-    else enabled.add(type);
+    else if (blockedTypeHints?.[type] === undefined) enabled.add(type);
+    else return;
     commitPlaylist(playlistOrder, enabled);
   };
   // The dragged card sits under the pointer at release, so the drag's own
@@ -341,6 +351,10 @@ export function PanelWidgetCatalog({
       const def = defByType.get(w.type);
       const alreadyPlaced = !!def?.meta.singleInstance && !!placedTypes?.includes(w.type);
       const addable = fits(w.size) && !alreadyPlaced;
+      const blockedHint = blockedTypeHints?.[w.type];
+      const blocked = blockedHint !== undefined;
+      const disabled = playlist ? blocked && !playlist.enabled.includes(w.type) : blocked || !addable;
+      const isAdded = !blocked && !playlist && added?.type === w.type;
       const cell = (drag?: CatalogCellDrag) => (
         <PanelCatalogCell
           key={w.id}
@@ -349,9 +363,9 @@ export function PanelWidgetCatalog({
           deviceTouch={deviceTouch}
           label={def ? t(def.meta.i18nKey) || w.type : w.type}
           selected={playlist ? playlist.enabled.includes(w.type) : selectedWidgetType === w.type}
-          // Playlist toggles are not placements, so grid room and single-instance limits do not apply.
-          disabled={!playlist && !addable}
-          disabledHint={!playlist && !addable && !alreadyPlaced && !gridFull ? t('panel.add.someTooLarge') : undefined}
+          // Existing conflicting playlist types remain clickable so they can be switched off.
+          disabled={disabled}
+          disabledHint={blockedHint ?? (!playlist && !addable && !alreadyPlaced && !gridFull ? t('panel.add.someTooLarge') : undefined)}
           drag={drag}
           onClick={() => {
             if (playlist) {
@@ -359,13 +373,14 @@ export function PanelWidgetCatalog({
               else togglePlaylistType(w.type);
               return;
             }
+            if (blocked) return;
             const widgetId = onAdd(w.type, w.size);
             if (variant === 'desktop-modal' && onEditWidget && typeof widgetId === 'string') {
               setAdded({ type: w.type, widgetId, stage: 'added' });
             }
           }}
-          addedStage={added?.type === w.type ? added.stage : null}
-          onEditAdded={added?.type === w.type ? () => onEditWidget?.(added.widgetId) : undefined}
+          addedStage={isAdded ? added.stage : null}
+          onEditAdded={isAdded ? () => onEditWidget?.(added.widgetId) : undefined}
           onPointerLeave={added?.type === w.type ? () => setAdded(null) : undefined}
         />
       );

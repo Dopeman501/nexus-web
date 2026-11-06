@@ -16,11 +16,13 @@ describe('D215 simulator composition editing', () => {
     expect(result.current.deviceFamily).toBe('jungle-leopard-d215');
     expect(result.current.panelsEditing).toBe(true);
     expect(result.current.layoutState.layout).toBe(layout);
-    message({ type: 'simulator/set-panels-editor', deviceFamily: 'jungle-leopard-d215', panelsEditing: false });
+    message({ type: 'simulator/set-panels-editor', deviceFamily: 'jungle-leopard-d215', panelsEditing: false, widgetEditing: true });
     expect(result.current.panelsEditing).toBe(false);
+    expect(result.current.widgetEditing).toBe(true);
     expect(result.current.layoutState.layout).toBe(layout);
     message({ type: 'simulator/set-panels-editor', deviceFamily: 'other-lcd', panelsEditing: true }, 'https://untrusted.example');
     expect(result.current.deviceFamily).toBe('jungle-leopard-d215');
     expect(result.current.panelsEditing).toBe(false);
+    expect(result.current.widgetEditing).toBe(true);
   });
 });

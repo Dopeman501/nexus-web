@@ -229,7 +229,7 @@ describe('PanelDevicePage widget size', () => {
     expect(await screen.findByRole('tab', { name: 'devices.y70.tab.settings' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'devices.y70.tab.theme' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'devices.y70.theme.background' })).toBeInTheDocument();
-    expect(screen.getByTestId('embed').dataset.surface).toBe(surface);
+    expect((await screen.findByTestId('embed')).dataset.surface).toBe(surface);
     fireEvent.click(screen.getByRole('switch', { name: 'panel.playlist.playlist' }));
 
     await waitFor(() => expect(patchPanelDeviceMock).toHaveBeenCalledWith('lcd5', expect.objectContaining({

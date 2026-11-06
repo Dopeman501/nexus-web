@@ -113,7 +113,8 @@ import { MONO_FILTER_ID, isMonoFamily, keepsSidePreview } from './monoPreview';
 import { PanelPresetToolbar } from './PanelPresetToolbar';
 import { D215BrightnessSettings } from './D215BrightnessSettings';
 import { D215PanelsEditor } from './D215PanelsEditor';
-import { readD215Panels, setD215PanelsEnabled } from '../../../panel/d215/d215Panels';
+import { readD215Panels } from '../../../panel/d215/d215Panels';
+import { readD215Widget, setD215WidgetEnabled } from '../../../panel/d215/d215Widget';
 import { FrameRateSetting } from './FrameRateSetting';
 import { showsFrameRateSetting } from './frameRateOptions';
 import { resolvePanelNativeCanvas } from '../../../panel/embed/panelNativeCanvas';
@@ -346,6 +347,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const [configuringWidgetId, setConfiguringWidgetId] = useState<string | null>(null);
   const [selectedPanelId, setSelectedPanelId] = useState<string | null>(null);
   const d215Panels = useMemo(() => readD215Panels(layout.d215Panels), [layout.d215Panels]);
+  const d215Widget = useMemo(() => readD215Widget(layout.d215Widget, d215Panels.enabled), [layout.d215Widget, d215Panels.enabled]);
   useEffect(() => { setSelectedPanelId(null); }, [device.id]);
   // Derived, never snapshotted: the on-device panel writes its own edits back
   // through the panel/device reverse sync below, so a copy of the widget goes
@@ -1169,11 +1171,24 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     const type = stepPlaylistType(playingTypes, from, delta);
     if (type) updateLayout(updateWidgetPlaylist(layout, { cursor: { type, at: Date.now() } }));
   }, [layout, playingTypes, previewPlaylist, updateLayout]);
-  const showPlaylistArrows = playlistMode && !configuringWidget && playingTypes.length > 1 && !(isD215Panel && d215Panels.enabled);
+  const showPlaylistArrows = playlistMode && !configuringWidget && playingTypes.length > 1 && (!isD215Panel || d215Widget.enabled);
+  // SDK manifests can arrive after the saved layout without changing its items.
+  const d215WidgetConflicts: Record<string, string> = Object.fromEntries(isD215Panel ? d215Panels.items.flatMap(item => {
+    const app = lookupApp(item.type);
+    return app?.meta.singleInstance ? [[app.meta.type, t('devices.jungle-leopard-d215.widgets.singleInstanceInPanels', { name: t(app.meta.i18nKey) })]] : [];
+  }) : []);
+  const changeD215WidgetVisibility = (enabled: boolean) => {
+    if (enabled && currentSingleWidget && d215WidgetConflicts[currentSingleWidget.type]) return;
+    const next = setD215WidgetEnabled(layout, enabled);
+    updateLayout(enabled && next.widgetPlaylist?.enabled ? updateWidgetPlaylist(next, {
+      types: widgetPlaylistOf(next).types.filter(type => !d215WidgetConflicts[type]),
+    }) : next);
+  };
 
   // A playlist entry is edited as the shown widget: swapping to it restores
   // its remembered config, so the settings pane edits the entry in place.
   const editSingleWidgetType = useCallback((type: string) => {
+    if (d215WidgetConflicts[type]) return;
     const current = layout.pages[0]?.widgets[0];
     if (current?.type === type) {
       setConfiguringWidgetId(current.id);
@@ -1184,11 +1199,12 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     const next: PanelWidget = { id: createUuid(), type, size, col: 0, row: 0 };
     updateLayout(swapSingleWidget(layout, next));
     setConfiguringWidgetId(next.id);
-  }, [layout, surface, updateLayout]);
+  }, [d215WidgetConflicts, layout, surface, updateLayout]);
 
   // Returns the id of the widget that landed so the catalog can offer
   // "click to edit" on the card that was just clicked.
   const handleAddWidget = useCallback((type: string, size: PanelWidgetSize): string | undefined => {
+    if (d215WidgetConflicts[type]) return undefined;
     if (singleWidget) {
       // Single-widget surface (q-series): one widget at a time, fixed 2x4.
       // Clicking the catalog tile already on the device is a no-op.
@@ -1228,7 +1244,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     updateLayout(blankPage ? pruneEmptyPages(placed) : placed);
     // appendWidget refuses a full grid; only report an id the layout kept.
     return landingPage ? next.id : undefined;
-  }, [currentSlot, editorCapacity, genericOnePage, layout, pagesAllowed, pageSlots, showingBlankPage, singleWidget, updateLayout]);
+  }, [currentSlot, d215WidgetConflicts, editorCapacity, genericOnePage, layout, pagesAllowed, pageSlots, showingBlankPage, singleWidget, updateLayout]);
 
   const handleRemoveWidget = useCallback((widgetId: string) => {
     updateLayout(removeWidgetById(layout, widgetId, editorCapacity));
@@ -1731,25 +1747,27 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                   {activeTab === 'widgets' && (
                     <>
                       <div className={styles.catalogHost}>
-                        {isD215Panel && d215Panels.enabled && (
-                          <Card compact className={styles.playlistPanel}>
-                            <p>{t('devices.jungle-leopard-d215.panels.widgetsHidden')}</p>
-                            <Button size="sm" onClick={() => updateLayout(setD215PanelsEnabled(layout, false))}>
-                              {t('devices.jungle-leopard-d215.panels.showWidgets')}
-                            </Button>
-                          </Card>
-                        )}
                         {widgetPlaylist && (
                           <Card compact className={styles.playlistPanel}>
+                            {isD215Panel && <>
+                              <SettingToggle label={t('devices.jungle-leopard-d215.widgets.enabled')}
+                                description={d215WidgetConflicts[currentSingleWidget?.type ?? ''] ?? t('devices.jungle-leopard-d215.widgets.enabledHint')}
+                                disabled={!d215Widget.enabled && Boolean(d215WidgetConflicts[currentSingleWidget?.type ?? ''])}
+                                checked={d215Widget.enabled} onChange={changeD215WidgetVisibility} />
+                              {d215Widget.enabled && <p>{t('devices.jungle-leopard-d215.widgets.hint')}</p>}
+                            </>}
                             {widgetPlaylist && (
                               <SettingToggle
                                 label={t('panel.playlist.playlist')}
                                 checked={playlistMode}
-                                onChange={on => updateLayout(setWidgetPlaylistEnabled(
-                                  layout,
-                                  on,
-                                  catalogEntriesFor(surface, { remote: remotePanel, deviceTouch: registryTouch, displayBound: isMonitorPanel, genericDisplay }).map(([type]) => type),
-                                ))}
+                                onChange={on => {
+                                  const next = setWidgetPlaylistEnabled(layout, on,
+                                    catalogEntriesFor(surface, { remote: remotePanel, deviceTouch: registryTouch, displayBound: isMonitorPanel, genericDisplay })
+                                      .map(([type]) => type).filter(type => !d215WidgetConflicts[type]));
+                                  updateLayout(isD215Panel && on ? updateWidgetPlaylist(next, {
+                                    types: widgetPlaylistOf(next).types.filter(type => !d215WidgetConflicts[type]),
+                                  }) : next);
+                                }}
                               />
                             )}
                             {widgetPlaylist && playlistMode && (
@@ -1771,6 +1789,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                           canAddSize={canAddSize}
                           onEditWidget={setConfiguringWidgetId}
                           placedTypes={placedTypes}
+                          blockedTypeHints={d215WidgetConflicts}
                           variant="desktop-modal"
                           remote={remotePanel}
                           className={styles.catalog}
@@ -1778,7 +1797,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                           playlist={playlistMode && widgetPlaylist ? {
                             order: widgetPlaylist.order,
                             enabled: widgetPlaylist.types,
-                            onChange: next => updateLayout(updateWidgetPlaylist(layout, next)),
+                            onChange: next => updateLayout(updateWidgetPlaylist(layout, {
+                              ...next, types: next.types.filter(type => !d215WidgetConflicts[type]),
+                            })),
                           } : undefined}
                           themeMode={desktopResolvedThemeMode}
                           themeStyle={panelPreviewThemeStyle}
@@ -2410,6 +2431,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                 captureRef={embedFrameRef}
                 deviceFamily={recordFamily ?? undefined}
                 panelsEditing={isD215Panel && activeTab === 'panels'}
+                widgetEditing={isD215Panel && activeTab === 'widgets'}
                 layout={layout}
                 theme={theme}
                 themeMode={resolvedPanelThemeMode}

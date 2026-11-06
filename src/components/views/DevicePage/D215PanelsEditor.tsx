@@ -8,6 +8,7 @@ import { MAX_D215_PANELS } from '../../../panel/d215/d215PanelTypes';
 import { PanelWidgetCatalog } from '../../../panel/editor/PanelWidgetCatalog';
 import type { PanelLayout } from '../../../panel/types';
 import { appAvailableForSurface, lookupApp } from '../../../panel/widgets/registry';
+import { readD215Widget } from '../../../panel/d215/d215Widget';
 import { PanelDeviceIdProvider } from '../../../panel/widgets/common/PanelDeviceIdContext';
 import { Button } from '../../common/Button/Button';
 import { Card } from '../../common/Card/Card';
@@ -33,6 +34,14 @@ export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChang
   const { t } = useTranslation();
   const state = useMemo(() => readD215Panels(layout.d215Panels), [layout.d215Panels]);
   const selected = state.items.find(item => item.id === selectedId);
+  const widgetEnabled = readD215Widget(layout.d215Widget, state.enabled).enabled;
+  const reservedTypes = [...layout.pages.flatMap(page => page.widgets.map(widget => widget.type)),
+    ...(widgetEnabled && layout.widgetPlaylist?.enabled ? layout.widgetPlaylist.types : [])];
+  const blockedTypeHints = Object.fromEntries(reservedTypes.flatMap(type => {
+    const app = lookupApp(type);
+    return app?.meta.singleInstance ? [[app.meta.type,
+      t(`${COPY}.singleInstanceInWidgets`, { name: t(app.meta.i18nKey) })]] : [];
+  }));
   const selectedApp = selected ? lookupApp(selected.type) : undefined;
   const Settings = selectedApp && appAvailableForSurface(selectedApp.meta, ROUND_SURFACE) ? selectedApp.Settings : undefined;
   const labelFor = (type: string) => {
@@ -94,6 +103,7 @@ export function D215PanelsEditor({ layout, canvas, selectedId, onSelect, onChang
             }}
             onEditWidget={onSelect} canAddSize={() => state.items.length < MAX_D215_PANELS}
             fullHint={t(`${COPY}.full`)}
+            blockedTypeHints={blockedTypeHints}
             placedTypes={[...state.items.map(item => item.type), ...layout.pages.flatMap(page => page.widgets.map(widget => widget.type))]} />
         </>
       )}

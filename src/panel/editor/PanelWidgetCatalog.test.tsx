@@ -1,7 +1,23 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+import type { DragEndEvent } from '@dnd-kit/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PanelWidgetCatalog } from './PanelWidgetCatalog';
 import type { PanelSurface } from '../types';
+
+const catalogDrag = vi.hoisted(() => ({ end: undefined as ((event: DragEndEvent) => void) | undefined }));
+
+vi.mock('@dnd-kit/core', async importOriginal => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>();
+  const Context = actual.DndContext;
+  return {
+    ...actual,
+    DndContext: (props: ComponentProps<typeof Context>) => {
+      catalogDrag.end = props.onDragEnd;
+      return <Context {...props} />;
+    },
+  };
+});
 
 vi.mock('../../lib/i18n', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -228,6 +244,78 @@ describe('PanelWidgetCatalog', () => {
     render(<PanelWidgetCatalog surface="q60" onAdd={vi.fn()} />);
 
     expect(screen.queryByRole('group', { name: 'panel.add.sizePreference' })).toBeNull();
+  });
+
+  describe('host-blocked widget types', () => {
+    const reason = 'This widget is already used by a panel.';
+    const blockedTypeHints = { clock: reason };
+    const clock = () => screen.getByRole('button', { name: 'panel.widget.clock' });
+
+    it('disables a blocked ordinary choice with its reason and never confirms it as added', () => {
+      const onAdd = vi.fn(() => 'new-instance');
+      render(<PanelWidgetCatalog surface="desktop" variant="desktop-modal" onAdd={onAdd}
+        onEditWidget={vi.fn()} blockedTypeHints={blockedTypeHints} />);
+      expect(clock()).toBeDisabled();
+      expect(clock()).toHaveAttribute('data-hint', reason);
+      fireEvent.click(clock());
+      expect(onAdd).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('added-panel.widget.clock')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'panel.widget.media' })).toBeEnabled();
+    });
+
+    it('clears an earlier Added confirmation if its type becomes blocked', () => {
+      const onAdd = vi.fn(() => 'new-instance');
+      const onEditWidget = vi.fn();
+      const props = { surface: 'desktop' as const, variant: 'desktop-modal' as const, onAdd, onEditWidget };
+      const view = render(<PanelWidgetCatalog {...props} />);
+      fireEvent.click(clock());
+      expect(screen.getByTestId('added-panel.widget.clock')).toBeInTheDocument();
+      view.rerender(<PanelWidgetCatalog {...props} blockedTypeHints={blockedTypeHints} />);
+      expect(clock()).toBeDisabled();
+      expect(clock()).toHaveAttribute('data-hint', reason);
+      expect(screen.queryByTestId('added-panel.widget.clock')).not.toBeInTheDocument();
+      fireEvent.click(clock());
+      expect(onAdd).toHaveBeenCalledTimes(1);
+      expect(onEditWidget).not.toHaveBeenCalled();
+    });
+
+    it('cannot enable a blocked playlist choice but can enable an unrelated type', () => {
+      const onAdd = vi.fn();
+      const onChange = vi.fn();
+      render(<PanelWidgetCatalog surface="q60" onAdd={onAdd} blockedTypeHints={blockedTypeHints}
+        playlist={{ order: ['clock', 'media'], enabled: [], onChange }} />);
+      expect(clock()).toBeDisabled();
+      expect(clock()).toHaveAttribute('data-hint', reason);
+      fireEvent.click(clock());
+      expect(onChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'panel.widget.media' }));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({ order: ['clock', 'media'], types: ['media'] });
+      expect(onAdd).not.toHaveBeenCalled();
+    });
+
+    it('keeps an enabled conflicting playlist type clickable only until the user disables it', () => {
+      const onChange = vi.fn();
+      const props = { surface: 'q60' as const, onAdd: vi.fn(), blockedTypeHints };
+      const view = render(<PanelWidgetCatalog {...props}
+        playlist={{ order: ['clock', 'media'], enabled: ['clock'], onChange }} />);
+      expect(clock()).toBeEnabled();
+      fireEvent.click(clock());
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({ order: ['clock', 'media'], types: [] });
+      view.rerender(<PanelWidgetCatalog {...props}
+        playlist={{ order: ['clock', 'media'], enabled: [], onChange }} />);
+      expect(clock()).toBeDisabled();
+      fireEvent.click(clock());
+      expect(onChange).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([false, true])('reorders a blocked playlist choice without enabling it or losing its existing enabled=%s state', enabled => {
+      const onChange = vi.fn();
+      render(<PanelWidgetCatalog surface="q60" onAdd={vi.fn()} blockedTypeHints={blockedTypeHints}
+        playlist={{ order: ['clock', 'media'], enabled: enabled ? ['clock'] : [], onChange }} />);
+      expect(catalogDrag.end).toBeTypeOf('function');
+      act(() => catalogDrag.end?.({ active: { id: 'clock' }, over: { id: 'media' } } as DragEndEvent));
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({ order: ['media', 'clock'], types: enabled ? ['clock'] : [] });
+    });
   });
 
   describe('when the target grid is out of room', () => {

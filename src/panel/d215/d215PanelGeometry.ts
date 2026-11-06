@@ -7,7 +7,12 @@ export interface D215CircleGeometry {
 
 export interface D215PanelCanvas { width: number; height: number }
 export type D215ResizeCorner = 'nw' | 'ne' | 'sw' | 'se';
-export interface D215AlignmentGuides { vertical: number[]; horizontal: number[] }
+export interface D215AlignmentGuides {
+  vertical: number[];
+  horizontal: number[];
+  /** Pixel bounds of the visible peer whose diameter the resize matched. */
+  matchingSize?: D215CircleBounds;
+}
 export interface D215CircleBounds {
   left: number;
   top: number;
@@ -140,4 +145,62 @@ export function resizeCircle<T extends D215CircleGeometry>(
     y: (anchorY + signY * side / 2) / height,
     diameter: side / shortSide,
   };
+}
+
+interface ResizeCandidate { side: number; peer?: D215CircleBounds }
+const RESIZE_EPSILON = 1e-7;
+
+function nearestResizeCandidate(side: number, candidates: readonly ResizeCandidate[], minimum: number, maximum: number, threshold: number): ResizeCandidate | undefined {
+  return candidates.filter(candidate => candidate.side >= minimum - RESIZE_EPSILON
+    && candidate.side <= maximum + RESIZE_EPSILON && Math.abs(candidate.side - side) <= threshold + RESIZE_EPSILON)
+    .reduce<ResizeCandidate | undefined>((best, candidate) => (
+      !best || Math.abs(candidate.side - side) < Math.abs(best.side - side) ? candidate : best
+    ), undefined);
+}
+
+function isSameCircle(left: D215CircleGeometry, right: D215CircleGeometry): boolean {
+  return left === right || ('id' in left && typeof left.id === 'string' && left.id.length > 0
+    && 'id' in right && left.id === right.id);
+}
+
+function alignedCoordinates(anchors: readonly number[], targets: readonly number[]): number[] {
+  return targets.filter(target => anchors.some(anchor => Math.abs(target - anchor) < RESIZE_EPSILON))
+    .filter((target, index, all) => all.findIndex(other => Math.abs(target - other) < RESIZE_EPSILON) === index);
+}
+
+/** Prefer a nearby equal diameter; otherwise align moving bounds or centers, keeping the opposite corner fixed. */
+export function resizeCircleWithGuides<T extends D215CircleGeometry>(
+  circle: T, corner: D215ResizeCorner, dx: number, dy: number, canvas: D215PanelCanvas,
+  others: readonly D215CircleGeometry[] = [], snapDistance = 6,
+): { circle: T; guides: D215AlignmentGuides } {
+  const resized = resizeCircle(circle, corner, dx, dy, canvas);
+  const threshold = Math.max(0, finite(snapDistance, 0));
+  if (threshold === 0) return { circle: resized, guides: { vertical: [], horizontal: [] } };
+  const { width, height } = dimensions(canvas);
+  const before = circleBounds(circle, canvas);
+  const raw = circleBounds(resized, canvas);
+  const signX = corner.endsWith('e') ? 1 : -1;
+  const signY = corner.startsWith('s') ? 1 : -1;
+  const anchorX = signX > 0 ? before.left : before.right;
+  const anchorY = signY > 0 ? before.top : before.bottom;
+  const minimum = Math.min(width, height) * D215_MIN_PANEL_DIAMETER;
+  const maximum = Math.min(width, height, signX > 0 ? width - anchorX : anchorX, signY > 0 ? height - anchorY : anchorY);
+  const peers = others.filter(other => !isSameCircle(circle, other)).map(other => circleBounds(other, canvas));
+  const matching = nearestResizeCandidate(raw.width, peers.map(peer => ({ side: peer.width, peer })), minimum, maximum, threshold);
+  const vertical = [width / 2, 0, width, ...peers.flatMap(peer => [(peer.left + peer.right) / 2, peer.left, peer.right])];
+  const horizontal = [height / 2, 0, height, ...peers.flatMap(peer => [(peer.top + peer.bottom) / 2, peer.top, peer.bottom])];
+  const alignments = [
+    ...vertical.flatMap(target => [1, 2].map(factor => ({ side: factor * signX * (target - anchorX) }))),
+    ...horizontal.flatMap(target => [1, 2].map(factor => ({ side: factor * signY * (target - anchorY) }))),
+  ];
+  const snapped = matching ?? nearestResizeCandidate(raw.width, alignments, minimum, maximum, threshold);
+  const next = snapped ? resizeCircle(circle, corner, signX * (snapped.side - before.width), signY * (snapped.side - before.height), canvas) : resized;
+  const bounds = circleBounds(next, canvas);
+  const guides: D215AlignmentGuides = matching?.peer ? {
+    vertical: [bounds.left, bounds.right], horizontal: [bounds.top, bounds.bottom], matchingSize: matching.peer,
+  } : {
+    vertical: alignedCoordinates([bounds.left, (bounds.left + bounds.right) / 2, bounds.right], vertical),
+    horizontal: alignedCoordinates([bounds.top, (bounds.top + bounds.bottom) / 2, bounds.bottom], horizontal),
+  };
+  return { circle: next, guides };
 }

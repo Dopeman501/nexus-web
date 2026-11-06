@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fetchPanelDevicesMock = vi.fn();
 const patchPanelDeviceMock = vi.fn();
+const registryState = vi.hoisted(() => ({ soloSingleInstance: true }));
 
 vi.mock('../../../api/service', () => ({
   fetchService: vi.fn().mockResolvedValue(null),
@@ -60,14 +61,17 @@ vi.mock('../../../panel/theme/panelTheme', () => ({
   useResolvedPanelThemeMode: () => 'dark',
 }));
 vi.mock('../../../panel/editor/PanelWidgetCatalog', () => ({
-  PanelWidgetCatalog: () => <div data-testid="catalog" />,
+  PanelWidgetCatalog: ({ blockedTypeHints, onAdd }: { blockedTypeHints?: Record<string, string>; onAdd: (type: string, size: string) => unknown }) =>
+    <div data-testid="catalog" data-blocked={JSON.stringify(blockedTypeHints)}>
+      <button onClick={() => onAdd('app:solo', '4x2')}>Add single-instance app</button>
+    </div>,
 }));
 vi.mock('../../../panel/editor/PanelThemeSettings', () => ({
   PanelThemeSettings: () => <div data-testid="theme" />,
 }));
 vi.mock('../../../panel/widgets/registry', () => ({
   lookupApp: (type: string) => ({
-    meta: { type, i18nKey: 'k', sizes: ['2x2'], defaultSize: '2x2', icon: () => null },
+    meta: { type, i18nKey: 'k', sizes: ['2x2'], defaultSize: '2x2', singleInstance: type === 'app:solo' && registryState.soloSingleInstance, icon: () => null },
     Widget: () => <div data-testid="widget-preview" />,
     Settings: undefined,
   }),
@@ -75,7 +79,7 @@ vi.mock('../../../panel/widgets/registry', () => ({
   appAvailableForSurface: () => true,
 }));
 vi.mock('./PanelEmbedFrame', () => ({
-  PanelEmbedFrame: ({ deviceFamily, panelsEditing, layout }: { deviceFamily?: string; panelsEditing?: boolean; layout: PanelLayout }) => <div data-testid="embed" data-family={deviceFamily} data-editing={String(panelsEditing)} data-panels={JSON.stringify(layout.d215Panels)} />,
+  PanelEmbedFrame: ({ deviceFamily, panelsEditing, layout }: { deviceFamily?: string; panelsEditing?: boolean; layout: PanelLayout }) => <div data-testid="embed" data-family={deviceFamily} data-editing={String(panelsEditing)} data-panels={JSON.stringify(layout.d215Panels)} data-layout={JSON.stringify(layout)} />,
 }));
 
 import { PanelDevicePage } from './PanelDevicePage';
@@ -96,6 +100,7 @@ const DEVICE: PanelDevice = {
 } as PanelDevice;
 
 beforeEach(() => {
+  registryState.soloSingleInstance = true;
   fetchPanelDevicesMock.mockReset();
   patchPanelDeviceMock.mockReset().mockResolvedValue({ ok: true });
 });
@@ -112,6 +117,64 @@ function record(family = 'jungle-leopard-d215') {
 }
 
 describe('D215 Panels tab integration', () => {
+  it('reenables Widgets without activating a remembered playlist app already used by a circle', async () => {
+    fetchPanelDevicesMock.mockResolvedValue({ devices: [{ ...record().devices[0], layout: {
+      ...layout, widgetPlaylist: { enabled: true, interval: 15, shuffle: false, types: ['clock', 'app:solo'], order: ['clock', 'app:solo'] },
+      d215Panels: { enabled: true, items: [{ ...layout.d215Panels!.items[0], type: 'app:solo' }] },
+    } }] });
+    render(<PanelDevicePage device={wide} />);
+    fireEvent.click(await screen.findByRole('switch', { name: 'devices.jungle-leopard-d215.widgets.enabled' }));
+    await waitFor(() => expect(patchPanelDeviceMock).toHaveBeenCalled());
+    const saved = patchPanelDeviceMock.mock.lastCall?.[1].layout;
+    expect(saved.d215Widget.enabled).toBe(true);
+    expect(saved.widgetPlaylist.types).toEqual(['clock']);
+    expect(saved.widgetPlaylist.order).toEqual(['clock', 'app:solo']);
+    expect(saved.d215Panels.items[0].type).toBe('app:solo');
+  });
+
+  it('refreshes conflict feedback when an installed SDK manifest arrives after the layout', async () => {
+    registryState.soloSingleInstance = false;
+    fetchPanelDevicesMock.mockResolvedValue({ devices: [{ ...record().devices[0], layout: {
+      ...layout, d215Panels: { enabled: true, items: [{ ...layout.d215Panels!.items[0], type: 'app:solo' }] },
+    } }] });
+    const view = render(<PanelDevicePage device={wide} />);
+    await screen.findByRole('switch', { name: 'devices.jungle-leopard-d215.widgets.enabled' });
+    expect(screen.getByTestId('catalog').getAttribute('data-blocked')).not.toContain('app:solo');
+    registryState.soloSingleInstance = true;
+    view.rerender(<PanelDevicePage device={wide} />);
+    expect(screen.getByTestId('catalog').getAttribute('data-blocked')).toContain('app:solo');
+    fireEvent.click(screen.getByRole('button', { name: 'Add single-instance app' }));
+    expect(patchPanelDeviceMock).not.toHaveBeenCalled();
+  });
+
+  it('explains a single-instance circle conflict and refuses an invalid Widget selection before saving', async () => {
+    fetchPanelDevicesMock.mockResolvedValue({ devices: [{ ...record().devices[0], layout: {
+      ...layout, d215Panels: { enabled: true, items: [{ ...layout.d215Panels!.items[0], type: 'app:solo' }] },
+    } }] });
+    render(<PanelDevicePage device={wide} />);
+    await waitFor(() => expect(screen.getByTestId('catalog').getAttribute('data-blocked')).toContain('app:solo'));
+    expect(screen.getByTestId('catalog').getAttribute('data-blocked')).toContain('widgets.singleInstanceInPanels');
+    fireEvent.click(screen.getByRole('button', { name: 'Add single-instance app' }));
+    expect(patchPanelDeviceMock).not.toHaveBeenCalled();
+  });
+
+  it('offers an independent Widgets toggle above Playlist without the exclusive-mode card', async () => {
+    fetchPanelDevicesMock.mockResolvedValue(record());
+    render(<PanelDevicePage device={wide} />);
+    const widgets = await screen.findByRole('switch', { name: 'devices.jungle-leopard-d215.widgets.enabled' });
+    const playlist = screen.getByRole('switch', { name: 'panel.playlist.playlist' });
+    expect(widgets.compareDocumentPosition(playlist) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(widgets).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByRole('button', { name: `${COPY}.showWidgets` })).not.toBeInTheDocument();
+    const before = JSON.parse(screen.getByTestId('embed').getAttribute('data-layout')!);
+    fireEvent.click(widgets);
+    await waitFor(() => expect(patchPanelDeviceMock).toHaveBeenCalled());
+    const saved = patchPanelDeviceMock.mock.lastCall?.[1].layout;
+    expect(saved.d215Widget).toMatchObject({ enabled: true, x: 0.5, y: 0.5, scale: 0.6 });
+    expect(saved.d215Panels).toEqual(layout.d215Panels);
+    expect(saved.pages).toEqual(before.pages);
+  });
+
   it('places Panels immediately after Widgets and forwards family and editor mode to the real preview', async () => {
     fetchPanelDevicesMock.mockResolvedValue(record());
     render(<PanelDevicePage device={wide} />);
