@@ -29,6 +29,7 @@ import { usePanelGaugeGradient, type PanelGaugeGradientValue } from '../common/P
 import { defaultValueColorReverse, gaugeAccentVars, hasValueColorReading, reverseGaugeGradient, sensorSupportsValueColor } from './valueColor';
 import { accentShadowAlpha } from '../../../lib/settings';
 import { formatSensorValue } from './sensorValueFormat';
+import { monitoringTextColorStyle } from './monitoringTextColor';
 import type { NumberFormat, TempUnit } from '../../../lib/units';
 import styles from './MicroMonitoringWidget.module.scss';
 import perfStyles from './MonitoringWidget.module.scss';
@@ -185,7 +186,7 @@ export function MicroMonitoringWidget({ widget, count, selectedSlot, onSelectSlo
   const half = Math.ceil(count / 2);
 
   return (
-    <div className={styles.micro}>
+    <div className={styles.micro} style={monitoringTextColorStyle(widget.config?.textColor)}>
       {twoColumn ? (
         <div className={styles.columns}>
           <div className={styles.rows}>{rowEls.slice(0, half)}</div>

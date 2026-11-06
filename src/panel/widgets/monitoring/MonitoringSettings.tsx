@@ -46,6 +46,7 @@ import {
 import { SettingsSection, SettingsRow, SettingsToggle, SettingsButton } from '../common/SettingsRow/SettingsRow';
 import { ChipGroup } from '../../../components/common/ChipGroup/ChipGroup';
 import { DesktopOnlyBadge } from '../../../components/common/DesktopOnlyBadge/DesktopOnlyBadge';
+import { MonitoringTextColorSettings } from './MonitoringTextColorSettings';
 import styles from './MonitoringSettings.module.scss';
 
 // The panel-wide gauge gradient, edited from whichever monitoring widget has
@@ -620,36 +621,39 @@ export function MonitoringSettings({ widget, surface, desktopEditor, onUpdate, s
           </SettingsSection>
         )}
 
-        {microSupportsValueColor && (
-          <SettingsSection title={t('monitoring.settings.colors')}>
+        <SettingsSection title={t('monitoring.settings.colors')}>
+          {microSupportsValueColor && (
             <SettingsToggle
               label={t('monitoring.settings.valueColor')}
               description={t('monitoring.settings.valueColorHint')}
               checked={microValueColor}
               onChange={next => onUpdate({ micro_valueColor: next })}
             />
-            {microValueColor && (
-              <>
-                {microSensorNames.map((name, i) => microRowColorable[i] && (
-                  <SettingsToggle
-                    key={i}
-                    label={t('monitoring.settings.valueColorReverseRow', {
-                      sensor: microAutoLabel(rowDevices[i], name, sensors, networkSensors, extras, multiDevice),
-                    })}
-                    checked={(widget.config?.[`micro_sensor${i}_valueColorReverse`] as boolean | undefined) ?? defaultValueColorReverse(rowDevices[i], microRowSensors[i]?.name ?? name)}
-                    onChange={next => onUpdate({ [`micro_sensor${i}_valueColorReverse`]: next })}
-                  />
-                ))}
-                <GaugeGradientSection />
-              </>
-            )}
-          </SettingsSection>
-        )}
+          )}
+          <MonitoringTextColorSettings widget={widget} onUpdate={onUpdate} />
+          {microSupportsValueColor && microValueColor && (
+            <>
+              {microSensorNames.map((name, i) => microRowColorable[i] && (
+                <SettingsToggle
+                  key={i}
+                  label={t('monitoring.settings.valueColorReverseRow', {
+                    sensor: microAutoLabel(rowDevices[i], name, sensors, networkSensors, extras, multiDevice),
+                  })}
+                  checked={(widget.config?.[`micro_sensor${i}_valueColorReverse`] as boolean | undefined) ?? defaultValueColorReverse(rowDevices[i], microRowSensors[i]?.name ?? name)}
+                  onChange={next => onUpdate({ [`micro_sensor${i}_valueColorReverse`]: next })}
+                />
+              ))}
+              <GaugeGradientSection />
+            </>
+          )}
+        </SettingsSection>
       </div>
     );
   }
 
   const slotValueColor = (widget.config?.[`slot${activeSlot}_valueColor`] as boolean | undefined) ?? false;
+  const slotSupportsValueColor = !!activeConfig && sensorSupportsValueColor(activeSensor?.type, activeConfig.device)
+    && designSupportsValueColor(activeConfig.design);
   const slotValueColorReverse = (widget.config?.[`slot${activeSlot}_valueColorReverse`] as boolean | undefined)
     ?? (activeConfig ? defaultValueColorReverse(activeConfig.device, activeSensor?.name ?? activeConfig.sensorName) : false);
   const slotLabelMode = (widget.config?.[`slot${activeSlot}_labelMode`] as string | undefined) ?? 'auto';
@@ -759,26 +763,27 @@ export function MonitoringSettings({ widget, surface, desktopEditor, onUpdate, s
             </SettingsSection>
           )}
 
-          {sensorSupportsValueColor(activeSensor?.type, activeConfig.device) && designSupportsValueColor(activeConfig.design) && (
-            <SettingsSection title={t('monitoring.settings.colors')}>
+          <SettingsSection title={t('monitoring.settings.colors')}>
+            {slotSupportsValueColor && (
               <SettingsToggle
                 label={t('monitoring.settings.valueColor')}
                 description={t('monitoring.settings.valueColorHint')}
                 checked={slotValueColor}
                 onChange={next => onUpdate({ [`slot${activeSlot}_valueColor`]: next })}
               />
-              {slotValueColor && (
-                <>
-                  <SettingsToggle
-                    label={t('monitoring.settings.valueColorReverse')}
-                    checked={slotValueColorReverse}
-                    onChange={next => onUpdate({ [`slot${activeSlot}_valueColorReverse`]: next })}
-                  />
-                  <GaugeGradientSection />
-                </>
-              )}
-            </SettingsSection>
-          )}
+            )}
+            <MonitoringTextColorSettings widget={widget} onUpdate={onUpdate} />
+            {slotSupportsValueColor && slotValueColor && (
+              <>
+                <SettingsToggle
+                  label={t('monitoring.settings.valueColorReverse')}
+                  checked={slotValueColorReverse}
+                  onChange={next => onUpdate({ [`slot${activeSlot}_valueColorReverse`]: next })}
+                />
+                <GaugeGradientSection />
+              </>
+            )}
+          </SettingsSection>
         </>
       )}
     </div>

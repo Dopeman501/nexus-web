@@ -28,6 +28,7 @@ import { usePanelGaugeGradient, type PanelGaugeGradientValue } from '../common/P
 import { remapGaugeGradientToDomain } from '../../theme/gaugeGradient';
 import { defaultValueColorReverse, designSupportsValueColor, gaugeAccentVars, hasValueColorReading, reverseGaugeGradient, sensorSupportsValueColor } from './valueColor';
 import { accentShadowAlpha } from '../../../lib/settings';
+import { monitoringTextColorStyle } from './monitoringTextColor';
 import styles from './MonitoringWidget.module.scss';
 
 interface TempSensorPrefs {
@@ -256,7 +257,7 @@ export function MonitoringWidget({ widget, selectedSlot, onSelectSlot }: WidgetP
   const fullBleed = isFullBleedRound(widget.size, widget.config);
 
   return (
-    <div className={`${styles.performance} ${layoutClass}${fullBleed ? ` ${styles.fullBleed}` : ''}`}>
+    <div className={`${styles.performance} ${layoutClass}${fullBleed ? ` ${styles.fullBleed}` : ''}`} style={monitoringTextColorStyle(widget.config?.textColor)}>
       {slotConfigs.map(({ device, sensorName, design, scale, fixedMin, fixedMax, valueColor, valueColorReverse, labelOverride, labelMode }, i) => {
         return (
           <PerfSlot

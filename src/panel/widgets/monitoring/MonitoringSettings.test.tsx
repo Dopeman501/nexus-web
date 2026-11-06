@@ -169,12 +169,11 @@ describe('MonitoringSettings', () => {
     expect(screen.queryByText(/Sensor 2/i)).not.toBeInTheDocument();
 
     expect(screen.getAllByRole('combobox')).toHaveLength(2);
-    // Slot-select and design buttons stay pressed buttons; the Label chips
-    // (reset hidden in Auto) and the Range chips (sparkline supports scale)
-    // are radios. Split by role so a control changing category can't hide
-    // in the total.
-    const pressed = screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed'));
-    expect(pressed).toHaveLength(2 + GAUGE_DESIGN_KEYS.length);
+    // Check slot selection and available designs independently of color swatches.
+    expect(screen.getAllByRole('button', { name: /^Select / })).toHaveLength(2);
+    for (const design of GAUGE_DESIGN_KEYS) {
+      expect(screen.getByRole('button', { name: GAUGE_DESIGN_LABELS[design], exact: true })).toHaveAttribute('aria-pressed');
+    }
     expect(screen.getAllByRole('radio')).toHaveLength(3 + 2);
   });
 

@@ -96,6 +96,69 @@ async function openDevice(page: Page, tab = 'Widgets') {
 
 const tab = (page: Page, name: string) => page.getByRole('tab', { name, exact: true }).click();
 
+test('Monitoring Panel text color stays local, survives reload and resets to inherited text', async ({ page }, testInfo) => {
+  const record = seed();
+  record.layout!.d215Widget = { enabled: false, x: 0.5, y: 0.5, scale: 1 };
+  record.layout!.d215Panels = { enabled: true, items: [0, 1].map(index => ({
+    id: `monitor-${index}`, type: 'monitoring', x: index === 0 ? 0.3 : 0.7, y: 0.5, diameter: 0.7,
+    config: { slot0_device: 'fps', slot0_design: index === 0 ? 'bar' : 'text' },
+  })) };
+  const state: MockService = { record, writes: [] };
+  await mockService(page, state);
+  await page.goto('/');
+  await openDevice(page, 'Panels');
+  await page.getByRole('button', { name: 'Monitoring 1', exact: true }).click();
+  await expect(page.getByText('Text color', { exact: true })).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Color by value', exact: true })).toBeVisible();
+  const frame = page.frameLocator('iframe');
+  const first = frame.locator('[data-d215-panel-id="monitor-0"] [data-monitoring-slot-index="0"]');
+  const second = frame.locator('[data-d215-panel-id="monitor-1"] [data-monitoring-slot-index="0"]');
+  const inherited = await first.evaluate(element => getComputedStyle(element).getPropertyValue('--text').trim());
+  const other = await second.evaluate(element => getComputedStyle(element).getPropertyValue('--text').trim());
+  await page.getByRole('button', { name: '#2563eb', exact: true }).click();
+  await expect.poll(() => state.record.layout?.d215Panels?.items[0].config?.textColor).toBe('#2563eb');
+  await expect(first).toHaveCSS('--text', '#2563eb');
+  await expect(second).toHaveCSS('--text', other);
+  expect(state.record.layout!.d215Panels!.items[1].config?.textColor).toBeUndefined();
+  const textPicker = page.getByRole('group', { name: 'Text color', exact: true });
+  // Settle editor scrolling before opening the portal, which dismisses on scroll.
+  await textPicker.scrollIntoViewIfNeeded();
+  await expect(textPicker).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: testInfo.outputPath('monitoring-text-color-picker.png') });
+  await frame.locator('.panel-root').screenshot({ path: testInfo.outputPath('independent-monitoring-text.png') });
+  await textPicker.getByRole('button', { name: 'Custom color', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Custom color', exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Hex color', exact: true }).fill('#12ab34');
+  await expect.poll(() => state.record.layout?.d215Panels?.items[0].config?.textColor).toBe('#12ab34');
+  await expect(first).toHaveCSS('--text', '#12ab34');
+  await page.reload();
+  await openDevice(page, 'Panels');
+  await page.getByRole('button', { name: 'Monitoring 1', exact: true }).click();
+  await expect(first).toHaveCSS('--text', '#12ab34');
+  await expect(page.getByRole('group', { name: 'Text color', exact: true }).getByRole('button', { name: 'Custom color', exact: true })).toHaveAttribute('aria-current', 'true');
+  await page.getByRole('group', { name: 'Text color', exact: true }).getByRole('button', { name: /Reset/ }).click();
+  await expect.poll(() => state.record.layout?.d215Panels?.items[0].config?.textColor).toBeNull();
+  await expect(first).toHaveCSS('--text', inherited);
+});
+
+test('Monitoring Micro simple captions use the selected text color', async ({ page }) => {
+  const record = seed();
+  record.layout!.d215Widget = { enabled: false, x: 0.5, y: 0.5, scale: 1 };
+  record.layout!.d215Panels = { enabled: true, items: [{
+    id: 'micro-color', type: 'monitoring', x: 0.5, y: 0.5, diameter: 0.8,
+    config: { slotCount: 3, micro_device: 'fps', micro_design: 'simple',
+      micro_sensor0: 'FPS', micro_sensor0_label: 'Alpha', micro_sensor0_labelMode: 'custom' },
+  }] };
+  await mockService(page, { record, writes: [] });
+  await page.goto('/');
+  await openDevice(page, 'Panels');
+  await page.getByRole('button', { name: 'Monitoring 1', exact: true }).click();
+  const caption = page.frameLocator('iframe').getByText('Alpha', { exact: true });
+  await expect(caption).toBeVisible();
+  await page.getByRole('group', { name: 'Text color', exact: true }).getByRole('button', { name: '#8b5cf6', exact: true }).click();
+  await expect(caption).toHaveCSS('color', 'rgb(139, 92, 246)');
+});
+
 test('D215 Panel backgrounds toggle, stay independent, clip to circles and survive reload', async ({ page }, testInfo) => {
   const record = seed();
   record.layout!.d215Widget = { enabled: false, x: 0.5, y: 0.5, scale: 1 };

@@ -1,7 +1,7 @@
 import { PerfSlot } from './MonitoringWidget';
 import { DEFAULT_SLOTS, defaultSlotDesign, isExtrasBackedDevice, isMicroLayout, microRowDevice, resolvedSlotLayout, resolveSlotDesign } from './perfSlots';
 import type { DeviceKey, SlotLayout } from './perfSlots';
-import type { PanelWidget } from '../../types';
+import type { PanelConfigValue, PanelWidget } from '../../types';
 import type { GaugeDesignKey } from './gauges';
 import { ImmersiveLayout } from '../common/ImmersiveLayout';
 import { useSensors } from '../../../hooks/useSensors';
@@ -13,6 +13,7 @@ import { buildNetworkSensors } from './networkSensors';
 import { DEFAULT_SCALE_MODE, type ScaleMode } from './perfDomain';
 import { MicroMonitoringWidget } from './MicroMonitoringWidget';
 import { usePanelGaugeGradient } from '../common/PanelGaugeGradientContext';
+import { monitoringTextColorStyle } from './monitoringTextColor';
 import styles from './MonitoringTouch.module.scss';
 
 interface ImmersiveSlot {
@@ -24,6 +25,7 @@ interface ImmersiveSlot {
   fixedMax?: number;
   valueColor: boolean;
   valueColorReverse?: boolean;
+  textColor?: PanelConfigValue;
 }
 
 const IMMERSIVE_TILE = { cols: 4, rows: 4 };
@@ -50,6 +52,7 @@ function slotsOf(widget: PanelWidget, layout: SlotLayout): ImmersiveSlot[] {
     fixedMax: widget.config?.[`slot${i}_max`] as number | undefined,
     valueColor: (widget.config?.[`slot${i}_valueColor`] as boolean | undefined) ?? false,
     valueColorReverse: widget.config?.[`slot${i}_valueColorReverse`] as boolean | undefined,
+    textColor: widget.config?.textColor,
   }));
 }
 
@@ -102,7 +105,7 @@ export function MonitoringTouch({ widget, pageWidgets, immersiveGrid }: WidgetPr
     }
     const { device, sensorName, design, scale, fixedMin, fixedMax, valueColor, valueColorReverse } = entry.slot;
     return (
-      <div className={styles.slotCell} key={`${i}-${device}-${sensorName}`}>
+      <div className={styles.slotCell} key={`${i}-${device}-${sensorName}`} style={monitoringTextColorStyle(entry.slot.textColor)}>
         <PerfSlot
           sensors={sensors}
           fpsSensors={fpsSensors}
