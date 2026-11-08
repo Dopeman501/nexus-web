@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
-import { ANIMATE_EFFECTS, BASE_DEFAULTS } from '../src/types/lighting';
+import { ANIMATE_EFFECTS, BASE_DEFAULTS, type EffectTemplateBundle } from '../src/types/lighting';
 import type { LightingDevice, Pin } from '../src/api/lighting';
 import type { LightingAudioTriggerSettings } from '../src/api/lightingAudioTrigger';
 
@@ -28,6 +28,7 @@ interface FixtureOptions {
   globalEffect?: string;
   replayPath?: string;
   stream?: boolean;
+  customSources?: string;
 }
 
 /** A stable blue-dot global canvas; device pins deliberately do not change this stream. */
@@ -49,9 +50,15 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
   const root = resolve(process.env.D215_DIST ?? 'dist');
   const shaderRoot = resolve('../nexus-service/src/Lighting/Engine/Gpu/Shaders');
   const captured: Record<string, unknown> = options.replayPath ? JSON.parse(readFileSync(options.replayPath, 'utf8')) : {};
-  const defaults = Object.fromEntries(ANIMATE_EFFECTS.map(({ key }) => [key, {
+  const custom = options.customSources ? JSON.parse(readFileSync(options.customSources, 'utf8')) as { composed: string } : null;
+  const customKey = 'custom:spatialfixture';
+  const defaults: Record<string, EffectTemplateBundle> = Object.fromEntries(ANIMATE_EFFECTS.map(({ key }) => [key, {
     selected: 0, slots: [1, 0.75, 0.4, 0.2].map(intensity => ({ ...BASE_DEFAULTS, intensity, params: {} })),
   }]));
+  const customEffects = custom ? [{ id: 'spatialfixture', name: 'Custom spatial fixture', updatedAt: 1, audio: false,
+    recipe: JSON.stringify({ v: 1, speed: 50, hue: 0, saturation: 1, contrast: 1, blocks: [
+      { uid: 'pattern', type: 'plasma', params: {} }, { uid: 'colour', type: 'palette', params: {} },
+    ] }) }] : [];
   const capturedAnimate = captured['/lighting/animate/settings'] as { effect: string; states: object; templates: typeof defaults } | undefined;
   const capturedPins = captured['/devices/lighting-devices/pins'] as { pins: Record<string, Pin> } | undefined;
   const capturedDevices = captured['/devices/lighting-devices/all'] as { devices: LightingDevice[] } | undefined;
@@ -68,7 +75,9 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
     ? devices.filter(device => !options.replayPath || initialPins[device.id]?.effect === 'terrace').map(device => device.id).slice(0, options.selectedCount)
     : [];
   const state = { pins: initialPins, writes: [] as string[], shaderReads: [] as string[], trigger,
-    templates: structuredClone(capturedAnimate?.templates ?? defaults), animateStates: capturedAnimate?.states ?? {},
+    templates: { ...structuredClone(capturedAnimate?.templates ?? defaults), ...(custom ? { [customKey]: { selected: 0,
+      slots: Array.from({ length: 4 }, () => ({ ...BASE_DEFAULTS, params: { u_saved_knob: 0.75 } })) } } : {}) },
+    animateStates: capturedAnimate?.states ?? {},
     activeEffect: capturedAnimate?.effect ?? options.globalEffect ?? 'fire', delayedEffect: '', failShaders: false,
     selectedIds, streamFrames: 0, triggerReads: 0, pendingShaderReleases: new Set<() => void>(),
     releaseShader: null as (() => void) | null };
@@ -91,7 +100,7 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
     const prototype = WebGL2RenderingContext.prototype;
     const shaderSource = prototype.shaderSource;
     prototype.shaderSource = function(shader, source) {
-      const key = source.match(/preview-effect:([\w-]+)/)?.[1];
+      const key = source.match(/preview-effect:([\w:-]+)/)?.[1];
       if (key) sources.set(shader, key);
       shaderSource.call(this, shader, source);
     };
@@ -118,6 +127,10 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
         this.canvas.dataset.drawEffect = key;
         this.canvas.dataset.drawPixel = [...pixel].join(',');
         this.canvas.dataset.drawCount = String(Number(this.canvas.dataset.drawCount ?? 0) + 1);
+        for (const [uniform, attribute] of [['u_background_rotation', 'drawPatternRotation'], ['u_background_zoom', 'drawPatternZoom']]) {
+          const location = this.getUniformLocation(program, uniform);
+          if (location) this.canvas.dataset[attribute] = String(this.getUniform(program, location));
+        }
       }
     };
   }, { selectedIds });
@@ -153,6 +166,7 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
           state.pendingShaderReleases.clear();
         };
       });
+      if (custom && key === customKey) return json({ frag: custom.composed + `\n// preview-effect:${key}` });
       const body = readFileSync(resolve(shaderRoot, `${key}.frag`), 'utf8');
       const gain = /float\s+outGain\s*\(/.test(body) ? '' : '\nfloat outGain() { return 1.0; }\n';
       return json({ frag: readFileSync(resolve(shaderRoot, '_prelude.frag'), 'utf8') + '\n' + body + gain + `\n// preview-effect:${key}` });
@@ -169,6 +183,7 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
     if (path === '/lighting/current') return json({ sync: state.activeEffect, paused: false });
     if (path === '/lighting/animate/defaults') return json(captured[path] ?? defaults);
     if (path === '/lighting/animate/settings') return json({ effect: state.activeEffect, states: state.animateStates, templates: state.templates });
+    if (path === '/lighting/custom-effects') return json(customEffects);
     if (path === '/lighting/animate/templates') {
       state.templates = request.postDataJSON().templates;
       return json({ error: false });
@@ -331,6 +346,66 @@ test('enabled Audio Trigger retains a focused preset fallback when WebGL is unav
 
 const preview = (page: Page) => page.locator('[class*="canvasArea"] canvas[class*="glCanvas"]');
 const pick = (page: Page, key: string) => page.locator(`[data-effect-key="${key}"]`).click();
+
+test('custom animation pattern rotation and zoom save, reopen and reset through the production editor', async ({ page }, testInfo) => {
+  const customSources = resolve(process.env.D215_CUSTOM_SOURCES ?? '../builds/custom-animation-spatial-20261108/runtime-sources.json');
+  test.skip(!existsSync(customSources), 'Set D215_CUSTOM_SOURCES to an isolated native runtime-source export.');
+  const state = await mockService(page, { customSources });
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const key = 'custom:spatialfixture';
+  const openLighting = () => page.locator('[class*="sidebarColumn"]').getByRole('button', { name: 'Lighting', exact: true }).click();
+  const rotation = page.getByRole('slider', { name: 'Pattern rotation', exact: true });
+  const zoom = page.getByRole('slider', { name: 'Pattern zoom', exact: true });
+  await page.goto('/');
+  await openLighting();
+  await pick(page, key);
+  await expect(preview(page)).toHaveAttribute('data-draw-effect', key);
+  await expect(rotation).toHaveValue('0');
+  await expect(rotation).toHaveAttribute('max', '360');
+  await expect(zoom).toHaveValue('100');
+  await expect(zoom).toHaveAttribute('min', '10');
+  await expect(zoom).toHaveAttribute('max', '300');
+  await expect(zoom).toHaveAttribute('step', '5');
+  const edit = async (label: string, value: number) => {
+    const row = page.locator('[class*="stacked"]').filter({ has: page.getByRole('slider', { name: label, exact: true }) });
+    await row.getByRole('button').click();
+    await row.getByRole('spinbutton').fill(String(value));
+    await row.getByRole('spinbutton').press('Enter');
+  };
+  await edit('Pattern rotation', 90);
+  await expect.poll(() => state.templates[key].slots[0].params.u_background_rotation).toBe(90);
+  await edit('Pattern zoom', 200);
+  await expect.poll(() => state.templates[key].slots[0].params).toEqual({
+    u_saved_knob: 0.75, u_background_rotation: 90, u_background_zoom: 2,
+  });
+  await expect(preview(page)).toHaveAttribute('data-draw-pattern-rotation', '90');
+  await expect(preview(page)).toHaveAttribute('data-draw-pattern-zoom', '2');
+  await zoom.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('custom-animation-spatial-controls.png') });
+  // A new document hydrates from the fixture's saved response, not React memory.
+  await page.reload();
+  await openLighting();
+  await expect(rotation).toHaveValue('90');
+  await expect(zoom).toHaveValue('200');
+  await expect(preview(page)).toHaveAttribute('data-draw-pattern-rotation', '90');
+  await expect(preview(page)).toHaveAttribute('data-draw-pattern-zoom', '2');
+  await page.getByRole('button', { name: 'Reset preset 1', exact: true }).click();
+  await expect.poll(() => state.templates[key].slots[0].params).toEqual({});
+  await expect(rotation).toHaveValue('0');
+  await expect(zoom).toHaveValue('100');
+  await expect(preview(page)).toHaveAttribute('data-draw-pattern-rotation', '0');
+  await expect(preview(page)).toHaveAttribute('data-draw-pattern-zoom', '1');
+  expect(state.templates[key].slots[1].params).toEqual({ u_saved_knob: 0.75 });
+  await testInfo.attach('custom-editor-writes.json', { body: JSON.stringify(state.writes), contentType: 'application/json' });
+  // Page boot/navigation also reports diagnostics, remembers the route and
+  // saves UI preferences. Keep those exact observed requests separate from edits.
+  const allowedWrites = new Set(['/lighting/animate/headless-start', '/lighting/animate/templates',
+    '/diagnostics/client-mem', '/telemetry/page-viewed/dashboard', '/telemetry/page-viewed/lighting',
+    '/session/last-route', '/preferences']);
+  expect(state.writes.filter(path => !allowedWrites.has(path))).toEqual([]);
+  expect(errors).toEqual([]);
+});
 
 for (const selection of ['none', 'one', 'multiple']) {
   test(`large preview draws every selected effect with ${selection} devices selected`, async ({ page }, testInfo) => {
