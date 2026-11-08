@@ -99,7 +99,7 @@ describe('Audio Trigger settings', () => {
   it('previews an existing disabled-trigger selection and automatically commits only finished edits', () => {
     const onChange = mount(settings({ backgrounds: [{ mode: 'solid', color: '#00ff00' }, { mode: 'media', mediaId: 'asset-one', mediaType: 'static' }] }));
     fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
-    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ mode: 'solid', color: '#0f0f0f' }));
     fireEvent.click(screen.getByRole('button', { name: 'Edit background 1' }));
     expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ color: '#00ff00' }));
     expect(onChange).not.toHaveBeenCalled();
@@ -113,7 +113,7 @@ describe('Audio Trigger settings', () => {
     fireEvent.click(screen.getByText('Red solid'));
     expect(onChange.mock.calls.at(-1)![0].backgrounds[0]).toMatchObject({ color: '#ff0000', opacity: 0.4 });
     fireEvent.click(screen.getByRole('button', { name: 'New background' }));
-    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ mode: 'solid', color: '#0f0f0f' }));
   });
 
   it('keeps the selected entry when an earlier entry is removed and clears preview when it is removed', () => {
@@ -124,7 +124,7 @@ describe('Audio Trigger settings', () => {
     fireEvent.click(screen.getByText('Dim background'));
     expect(onChange.mock.calls.at(-1)![0].backgrounds).toEqual([expect.objectContaining({ color: '#00ff00', opacity: 0.4 })]);
     fireEvent.click(screen.getByRole('button', { name: 'Remove background 1' }));
-    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ mode: 'solid', color: '#0f0f0f' }));
   });
 
   it('does not retarget automatic edits after another editor replaces the selected entry', () => {
@@ -149,5 +149,36 @@ describe('Audio Trigger settings', () => {
     expect(onChange.mock.calls.at(-1)![0].backgrounds).toEqual([expect.objectContaining({ mode: 'media', mediaId: 'asset-two', mediaType: 'animated', mediaAlpha: true })]);
     fireEvent.click(screen.getByText('Dim background'));
     expect(onChange.mock.calls.at(-1)![0].backgrounds).toEqual([expect.objectContaining({ mediaId: 'asset-two', opacity: 0.4 })]);
+  });
+
+  it('previews an initial empty-list draft across categories without saving until Add', () => {
+    const onChange = mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ mode: 'solid', color: '#0f0f0f' }));
+    fireEvent.click(screen.getByText('Red solid'));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ color: '#ff0000' }));
+    fireEvent.click(screen.getByText('Plasma animation'));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ mode: 'shader', effect: 'plasma' }));
+    fireEvent.click(screen.getByText('First media'));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ mode: 'media', mediaId: 'asset-one' }));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add background' }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange.mock.calls[0][0].backgrounds).toEqual([expect.objectContaining({ mode: 'media', mediaId: 'asset-one' })]);
+  });
+
+  it('previews a New draft independently of saved selections, discards it on close, and reopens with a fresh preview', () => {
+    const onChange = mount(settings({ backgrounds: [{ mode: 'solid', color: '#00ff00' }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit background 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New background' }));
+    fireEvent.click(screen.getByText('Red solid'));
+    fireEvent.click(screen.getByText('Dim background'));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ color: '#ff0000', opacity: 0.4 }));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ color: '#0f0f0f', opacity: 1 }));
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

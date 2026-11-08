@@ -59,7 +59,7 @@ function AudioTriggerBackgrounds({ value, onChange, onClose, ...device }: Props 
   const select = (next: typeof editing) => { selection.current = next; setEditing(next); };
   // An external list edit must not redirect automatic saves into another entry.
   const editingIndex = editing && JSON.stringify(value.backgrounds[editing.index]) === editing.source ? editing.index : null;
-  useAudioTriggerPreviewPublisher(device.deviceId, editingIndex === null ? null : draft);
+  useAudioTriggerPreviewPublisher(device.deviceId, editing === null || editingIndex !== null ? draft : null);
   const { items, thumbs } = useBackgroundMedia(device.deviceId ?? '');
   const source = useRef(value);
   const current = useRef(value);

@@ -123,7 +123,21 @@ for (const surface of ['lcd-wide', 'lcd-round', 'y70'] as const) {
     const preview = deviceFrame.locator('[data-audio-trigger-background]');
     await page.getByRole('button', { name: 'Backgrounds', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Audio Trigger backgrounds', exact: true });
-    await expect(preview).toHaveCount(0);
+    await expect(preview).toHaveCSS('--panel-background-solid', '#0f0f0f');
+    await dialog.getByRole('button', { name: '#1e3a8a', exact: true }).click();
+    await expect(preview).toHaveCSS('--panel-background-solid', '#1e3a8a');
+    expect(state.record.backgroundAudioTrigger!.backgrounds[0].color).toBe('#00ff00');
+    expect(state.writes.filter(patch => patch.backgroundAudioTrigger)).toHaveLength(0);
+    if (surface === 'lcd-wide') {
+      await dialog.getByRole('radio', { name: 'Animations', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Plasma', exact: true }).click();
+      await expect(preview.locator('canvas')).toBeVisible();
+      await dialog.getByRole('radio', { name: 'Media', exact: true }).click();
+      await dialog.getByRole('button', { name: 'Audio cyan', exact: true }).click();
+      await expect(preview.locator('img')).toBeVisible();
+      expect(state.writes.filter(patch => patch.backgroundAudioTrigger)).toHaveLength(0);
+      expect(state.record.backgroundAudioTrigger!.backgrounds[0].color).toBe('#00ff00');
+    }
     await dialog.getByRole('button', { name: 'Edit background 1', exact: true }).click();
     await expect(dialog.getByRole('button', { name: 'Update background', exact: true })).toHaveCount(0);
     await expect(preview).toHaveCSS('--panel-background-solid', '#00ff00');
@@ -135,7 +149,12 @@ for (const surface of ['lcd-wide', 'lcd-round', 'y70'] as const) {
     await dialog.getByRole('button', { name: 'Edit background 2', exact: true }).click();
     await expect(preview.locator('img')).toBeVisible();
     await dialog.getByRole('button', { name: 'New background', exact: true }).click();
-    await expect(preview).toHaveCount(0);
+    await expect(preview).toHaveCSS('--panel-background-solid', '#0f0f0f');
+    await dialog.getByRole('button', { name: '#7f1d1d', exact: true }).click();
+    await expect(preview).toHaveCSS('--panel-background-solid', '#7f1d1d');
+    expect(state.record.backgroundAudioTrigger!.backgrounds).toHaveLength(2);
+    expect(state.record.backgroundAudioTrigger!.backgrounds[0].color).toBe('#1e3a8a');
+    expect(state.writes.filter(patch => patch.backgroundAudioTrigger)).toHaveLength(1);
     await dialog.getByRole('button', { name: 'Edit background 1', exact: true }).click();
     await expect(preview).toHaveCSS('--panel-background-solid', '#1e3a8a');
     await page.setViewportSize({ width: 1000, height: 650 });

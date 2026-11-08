@@ -154,9 +154,10 @@ describe('customTextVars', () => {
 });
 
 function declarations(css: string, selector: string): Record<string, string> {
-  const start = css.indexOf(`${selector} {`);
+  const normalized = css.replace(/\r\n?/g, '\n');
+  const start = normalized.indexOf(`${selector} {`);
   expect(start).toBeGreaterThanOrEqual(0);
-  const body = css.slice(start, css.indexOf('\n}', start));
+  const body = normalized.slice(start, normalized.indexOf('\n}', start));
   return Object.fromEntries([...body.matchAll(/^\s*((?:--)?[\w-]+):\s*([^;]+);/gm)].map(m => [m[1], m[2].trim()]));
 }
 
@@ -165,6 +166,11 @@ describe('adaptive ink palettes', () => {
   const tokens = readFileSync(join(__dirname, '../styles/tokens.scss'), 'utf8');
   // Accent is set per panel at runtime; the backdrop is what the ink is measured against.
   const themeOnly = /^--(accent|slider-fill-dim|backdrop-|logo-)/;
+
+  it.each(['\n', '\r\n', '\r'])('reads multiline palette selectors with %j newlines', newline => {
+    const stylesheet = [':root,', '[data-theme="dark"] {', '  --text: #ffffff;', '  --surface: #101010;', '}'].join(newline);
+    expect(declarations(stylesheet, ':root,\n[data-theme="dark"]')).toEqual({ '--text': '#ffffff', '--surface': '#101010' });
+  });
 
   it.each([
     ['light', ':root,\n[data-theme="dark"]'],
