@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import type { PanelDeviceRecord } from '../src/api/panel';
@@ -26,6 +26,10 @@ function seed(): MockService {
 /** Every browser request, including websockets/iframes, stays inside this fixture. */
 async function mockService(page: Page, state: MockService) {
   const root = resolve(process.env.D215_DIST ?? 'dist');
+  const sockets = new Set<WebSocketRoute>();
+  const previewWrites: unknown[] = [];
+  let preview: Record<string, unknown> | null = null;
+  let revision = 0;
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="756"><rect width="1680" height="756" fill="#024f62"/><circle cx="840" cy="378" r="240" fill="#ffd273"/></svg>';
   await page.addInitScript(() => {
     localStorage.setItem('nexus_token', 'test-token');
@@ -36,7 +40,11 @@ async function mockService(page: Page, state: MockService) {
       configurable: true, get: () => ({ getRegistrations: async () => [], register: async () => null }),
     });
   });
-  await page.routeWebSocket(/.*/, () => {});
+  await page.routeWebSocket(/.*/, socket => {
+    if (new URL(socket.url()).pathname !== '/ws') return;
+    sockets.add(socket);
+    socket.onClose(() => sockets.delete(socket));
+  });
   await page.route('**/*', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -53,7 +61,8 @@ async function mockService(page: Page, state: MockService) {
     if (request.method() !== 'GET' && path.startsWith('/lighting/')) state.globalWrites.push(path);
     if (path.startsWith('/lighting/shaders/')) {
       const shaderRoot = resolve('../nexus-service/src/Lighting/Engine/Gpu/Shaders');
-      return json({ frag: readFileSync(resolve(shaderRoot, '_prelude.frag'), 'utf8') + '\n' + readFileSync(resolve(shaderRoot, 'plasma.frag'), 'utf8') });
+      const effect = path.endsWith('/scope') ? 'scope' : 'plasma';
+      return json({ frag: readFileSync(resolve(shaderRoot, '_prelude.frag'), 'utf8') + '\n' + readFileSync(resolve(shaderRoot, effect + '.frag'), 'utf8') });
     }
     if (path.endsWith('/background-media/library')) return json({ items: [
       { id: NORMAL_MEDIA, name: 'Normal background.svg', type: 'static', sourceExt: '.svg', width: 1680, height: 756, importedAtUnixMs: 1, durationSec: 0, alpha: false },
@@ -66,9 +75,19 @@ async function mockService(page: Page, state: MockService) {
     if (path === '/profiles') return json({ profiles: [{ id: 'default', name: 'Default' }], activeId: 'default' });
     if (path === '/defaults') return json({ panel: { layouts: {} } });
     if (path === '/apps-api/installed') return json({ apps: [] });
-    if (path === '/devices/all') return json([{ id: 'jungle-leopard-d215', name: state.record.displayName, category: 'display',
-      connected: true, nexusControlEnabled: true, supportsNexusControl: true }]);
+    if (path === '/devices/all') return json(state.record.capabilities?.family === 'jungle-leopard-d215'
+      ? [{ id: 'jungle-leopard-d215', name: state.record.displayName, category: 'display',
+        connected: true, nexusControlEnabled: true, supportsNexusControl: true }] : []);
     if (path === '/panel/devices') return json({ devices: [state.record] });
+    if (path === `/panel/devices/${state.record.id}/audio-trigger-preview`) {
+      if (request.method() === 'POST') {
+        const body = request.postDataJSON();
+        previewWrites.push(body);
+        preview = { ...body, deviceId: state.record.id, revision: ++revision, expiresAtUnixMs: Date.now() + 6000 };
+        for (const socket of sockets) socket.send(JSON.stringify({ t: 'panel/audio-trigger-preview', d: preview }));
+      }
+      return json(preview);
+    }
     if (path === `/panel/devices/${state.record.id}/d215-brightness`) return json({ status: 'confirmed', value: 100 });
     if (path === `/panel/devices/${state.record.id}`) {
       if (request.method() === 'POST') {
@@ -80,11 +99,55 @@ async function mockService(page: Page, state: MockService) {
     }
     return route.fulfill({ status: 404, body: '' });
   });
+  return { previewWrites };
 }
 
 async function openBackground(page: Page) {
   await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: 'Jungle Leopard D215' }).first().click();
   await page.getByRole('tab', { name: 'Background', exact: true }).click();
+}
+
+for (const surface of ['lcd-wide', 'lcd-round', 'y70'] as const) {
+  test(`selected Audio Trigger background previews and automatically saves on ${surface}`, async ({ page }, testInfo) => {
+    const state = seed();
+    state.record.backgroundMode = 'solid';
+    state.record.backdrop = 'theme';
+    state.record.capabilities = { ...state.record.capabilities!, surface, family: surface === 'lcd-wide' ? 'jungle-leopard-d215' : undefined };
+    state.record.layout!.surface = surface;
+    state.record.backgroundAudioTrigger = { enabled: false, intensity: 40, switchDelay: 1, shuffle: false,
+      backgrounds: [{ mode: 'solid', color: '#00ff00', opacity: 1 }, { mode: 'media', mediaId: 'audio-cyan', mediaType: 'static', opacity: 1 }] };
+    const fixture = await mockService(page, state);
+    await page.goto('/');
+    await openBackground(page);
+    const deviceFrame = page.frameLocator('iframe');
+    const preview = deviceFrame.locator('[data-audio-trigger-background]');
+    await page.getByRole('button', { name: 'Backgrounds', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Audio Trigger backgrounds', exact: true });
+    await expect(preview).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Edit background 1', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Update background', exact: true })).toHaveCount(0);
+    await expect(preview).toHaveCSS('--panel-background-solid', '#00ff00');
+    expect(state.writes.filter(patch => patch.backgroundAudioTrigger)).toHaveLength(0);
+    await dialog.getByRole('button', { name: '#1e3a8a', exact: true }).click();
+    await expect.poll(() => state.record.backgroundAudioTrigger!.backgrounds[0].color).toBe('#1e3a8a');
+    await expect(preview).toHaveCSS('--panel-background-solid', '#1e3a8a');
+    expect(state.record.backgroundAudioTrigger!.enabled).toBe(false);
+    await dialog.getByRole('button', { name: 'Edit background 2', exact: true }).click();
+    await expect(preview.locator('img')).toBeVisible();
+    await dialog.getByRole('button', { name: 'New background', exact: true }).click();
+    await expect(preview).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Edit background 1', exact: true }).click();
+    await expect(preview).toHaveCSS('--panel-background-solid', '#1e3a8a');
+    await page.setViewportSize({ width: 1000, height: 650 });
+    await dialog.screenshot({ path: testInfo.outputPath(`audio-live-edit-${surface}.png`) });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(preview).toHaveCount(0);
+    expect(fixture.previewWrites.at(-1)).toMatchObject({ background: null });
+    expect(state.record.backgroundMode).toBe('solid');
+    expect(state.record.backgroundColor).toBe(NORMAL_COLOR);
+    expect(state.globalWrites).toEqual([]);
+  });
 }
 
 test('Audio Trigger menu saves mixed selections and settings independently of the normal background', async ({ page }, testInfo) => {
@@ -133,7 +196,7 @@ test('Audio Trigger menu saves mixed selections and settings independently of th
   await dialog.locator(':scope > div').screenshot({ path: testInfo.outputPath('audio-trigger-mixed-backgrounds.png') });
   await dialog.getByRole('button', { name: 'Edit background 1', exact: true }).click();
   await dialog.getByRole('button', { name: '#1e3a8a', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Update background', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Update background', exact: true })).toHaveCount(0);
   await expect.poll(() => state.record.backgroundAudioTrigger?.backgrounds[0].color).toBe('#1e3a8a');
   expect(state.record.backgroundAudioTrigger!.backgrounds[2].mediaId).toBe('audio-cyan');
   await dialog.getByRole('button', { name: 'Remove background 2', exact: true }).click();

@@ -139,6 +139,7 @@ import { inferSurfaceFromViewport } from './device/inferSurface';
 import { isLocalPanelClient, panelAudioReactiveAllowed } from './background/panelAudio';
 import { useAudioTrigger } from './background/useAudioTrigger';
 import { AudioTriggerBackgroundLayer } from './background/AudioTriggerBackgroundLayer';
+import { useAudioTriggerPreview } from './background/useAudioTriggerPreview';
 import { panelSystemFontsAvailable } from './theme/panelFont';
 import { PanelBackgroundShader } from './background/PanelBackgroundShader';
 import { PanelBackgroundMedia } from './background/PanelBackgroundMedia';
@@ -1317,8 +1318,12 @@ export function PanelContent({
   const showD215Widget = isD215Composition && d215Widget.enabled && shownSingleWidget !== undefined && !widgetConflictsWithCircle;
   const backgroundCovered = (!isD215Composition || (showD215Widget && d215Widget.scale === 1 && !(simulator && widgetEditing)))
     && shownSingleWidget !== undefined && opaqueWidgetIds.has(shownSingleWidget.id) && !immersiveSeeThrough;
-  const audioBackground = useAudioTrigger(effectiveTheme.backgroundAudioTrigger,
-    showBackgroundLayers && !backgroundCovered && !focusStaticMode && panelAudioReactiveAllowed(glassSurface, isLocalPanelClient()), deviceId ?? null);
+  const audioPreviewAllowed = showPanelBackground && backdrop === 'theme' && !backgroundCovered && !focusStaticMode
+    && panelAudioReactiveAllowed(glassSurface, isLocalPanelClient());
+  const audioPreview = useAudioTriggerPreview(deviceId, audioPreviewAllowed);
+  const triggeredBackground = useAudioTrigger(effectiveTheme.backgroundAudioTrigger,
+    audioPreviewAllowed && backgroundVisible && !audioPreview, deviceId ?? null);
+  const audioBackground = audioPreview ?? triggeredBackground;
   useEffect(() => {
     if (simulator) onSimulatorBackgroundCovered?.(backgroundCovered);
   }, [simulator, backgroundCovered, onSimulatorBackgroundCovered]);

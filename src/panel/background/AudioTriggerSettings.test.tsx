@@ -5,6 +5,9 @@ import { PanelAudioTriggerSettings } from './AudioTriggerSettings';
 import type { AudioTriggerSettings } from './audioTrigger';
 import type { PanelThemeSettingsProps } from '../editor/PanelThemeSettings';
 
+const preview = vi.hoisted(() => vi.fn());
+vi.mock('./useAudioTriggerPreviewPublisher', () => ({ useAudioTriggerPreviewPublisher: preview }));
+
 vi.mock('./useBackgroundMedia', () => ({ useBackgroundMedia: () => ({ items: [], thumbs: {} }) }));
 
 vi.mock('../editor/PanelThemeSettings', () => ({
@@ -14,7 +17,9 @@ vi.mock('../editor/PanelThemeSettings', () => ({
     <button onClick={() => { props.onBackgroundModeCommit('shader'); props.onBackgroundEffectCommit('plasma'); }}>Plasma animation</button>
     <button onClick={() => props.onBackgroundMediaCommit('asset-one', 'static', false)}>First media</button>
     <button onClick={() => props.onBackgroundMediaCommit('asset-two', 'animated', true)}>Second media</button>
+    <button onClick={() => props.onBackgroundModeCommit('media')}>Empty media category</button>
     <button onClick={() => props.onBackgroundOpacityCommit(0.4)}>Dim background</button>
+    <button onClick={() => props.onBackgroundOpacityPreview(0.2)}>Preview dim background</button>
     <output aria-label="Independent editor">{String(props.independentBackground && props.hideSlideshowControls)}</output>
   </div>,
 }));
@@ -60,7 +65,7 @@ describe('Audio Trigger settings', () => {
     expect(value.backgrounds[2]).toMatchObject({ mediaId: 'asset-one', mediaType: 'static', slideshow: false });
     fireEvent.click(within(dialog).getByRole('button', { name: /Edit background 1/ }));
     fireEvent.click(within(dialog).getByText('Dim background'));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Update background' }));
+    expect(within(dialog).queryByRole('button', { name: 'Update background' })).toBeNull();
     value = onChange.mock.calls.at(-1)![0] as AudioTriggerSettings;
     expect(value.backgrounds[0].opacity).toBe(0.4);
     expect(value.backgrounds[2].mediaId).toBe('asset-one');
@@ -89,5 +94,60 @@ describe('Audio Trigger settings', () => {
     mount(settings({ backgrounds: Array.from({ length: 32 }, () => ({ mode: 'solid', color: '#00ff00' })) }));
     fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
     expect(screen.getByRole('button', { name: 'Add background' })).toBeDisabled();
+  });
+
+  it('previews an existing disabled-trigger selection and automatically commits only finished edits', () => {
+    const onChange = mount(settings({ backgrounds: [{ mode: 'solid', color: '#00ff00' }, { mode: 'media', mediaId: 'asset-one', mediaType: 'static' }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit background 1' }));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ color: '#00ff00' }));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Preview dim background'));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', expect.objectContaining({ opacity: 0.2 }));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Dim background'));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false, backgrounds: [
+      expect.objectContaining({ color: '#00ff00', opacity: 0.4 }), expect.objectContaining({ mediaId: 'asset-one' }),
+    ] }));
+    fireEvent.click(screen.getByText('Red solid'));
+    expect(onChange.mock.calls.at(-1)![0].backgrounds[0]).toMatchObject({ color: '#ff0000', opacity: 0.4 });
+    fireEvent.click(screen.getByRole('button', { name: 'New background' }));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+  });
+
+  it('keeps the selected entry when an earlier entry is removed and clears preview when it is removed', () => {
+    const onChange = mount(settings({ backgrounds: [{ mode: 'solid', color: '#ff0000' }, { mode: 'solid', color: '#00ff00' }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit background 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove background 1' }));
+    fireEvent.click(screen.getByText('Dim background'));
+    expect(onChange.mock.calls.at(-1)![0].backgrounds).toEqual([expect.objectContaining({ color: '#00ff00', opacity: 0.4 })]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove background 1' }));
+    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+  });
+
+  it('does not retarget automatic edits after another editor replaces the selected entry', () => {
+    const onChange = vi.fn();
+    const props = { themeMode: 'dark' as const, deviceId: 'panel-one', deviceAspect: 2, onChange };
+    const view = render(<PanelAudioTriggerSettings {...props} value={settings({ backgrounds: [{ mode: 'solid', color: '#ff0000' }] })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit background 1' }));
+    view.rerender(<PanelAudioTriggerSettings {...props} value={settings({ backgrounds: [{ mode: 'solid', color: '#0000ff' }] })} />);
+    fireEvent.click(screen.getByText('Dim background'));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(preview).toHaveBeenLastCalledWith('panel-one', null);
+  });
+
+  it('waits for a valid media choice before replacing an existing entry, and keeps later edits on that entry', () => {
+    const onChange = mount(settings({ backgrounds: [{ mode: 'solid', color: '#00ff00' }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Backgrounds' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit background 1' }));
+    fireEvent.click(screen.getByText('Empty media category'));
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Second media'));
+    expect(onChange.mock.calls.at(-1)![0].backgrounds).toEqual([expect.objectContaining({ mode: 'media', mediaId: 'asset-two', mediaType: 'animated', mediaAlpha: true })]);
+    fireEvent.click(screen.getByText('Dim background'));
+    expect(onChange.mock.calls.at(-1)![0].backgrounds).toEqual([expect.objectContaining({ mediaId: 'asset-two', opacity: 0.4 })]);
   });
 });

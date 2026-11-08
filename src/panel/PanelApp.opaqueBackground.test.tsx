@@ -9,6 +9,8 @@ import type { PanelLayout, PanelSurface, PanelWidgetSize } from './types';
 const fetchMock = vi.fn();
 const shaderCovered: boolean[] = [];
 const audioTrigger = vi.hoisted(() => ({ choice: null as null | { mode: 'solid'; color: string }, enabled: [] as boolean[] }));
+const audioPreview = vi.hoisted(() => ({ choice: null as null | { mode: 'solid'; color: string } }));
+vi.mock('./background/useAudioTriggerPreview', () => ({ useAudioTriggerPreview: (_id: unknown, enabled: boolean) => enabled ? audioPreview.choice : null }));
 vi.mock('./background/useAudioTrigger', () => ({ useAudioTrigger: (_settings: unknown, enabled: boolean) => {
   audioTrigger.enabled.push(enabled);
   return enabled ? audioTrigger.choice : null;
@@ -70,6 +72,7 @@ function recordWith(surface: PanelSurface, size: PanelWidgetSize, config: Record
     lastSeenAt: 0,
     layout,
     backgroundMode: 'shader',
+    backdrop: 'theme',
     capabilities: { surface, touch: false, dpi: 100, cssWidth: 640, cssHeight: 640, dpr: 1 },
   };
 }
@@ -89,6 +92,7 @@ async function mountKiosk() {
 
 beforeEach(() => {
   audioTrigger.choice = null;
+  audioPreview.choice = null;
   audioTrigger.enabled = [];
   shaderCovered.length = 0;
   fetchMock.mockReset();
@@ -97,6 +101,31 @@ beforeEach(() => {
 });
 
 describe('PanelApp Audio Trigger background override', () => {
+  it('previews an opaque selected snapshot even when the normal background opacity is zero', async () => {
+    fetchMock.mockResolvedValue({ found: true, record: { ...recordWith('lcd-wide', '4x2', { fit: true }), backgroundOpacity: 0 } });
+    audioPreview.choice = { mode: 'solid', color: '#00ff00' };
+    await mountKiosk();
+    await waitFor(() => expect(document.querySelector('[data-audio-trigger-background]')).toHaveStyle({ '--panel-background-solid': '#00ff00' }));
+  });
+
+  for (const surface of ['lcd-round', 'lcd-square', 'lcd-wide', 'lcd-portrait', 'monitor', 'y70'] as const) {
+    it(`previews the selected background ahead of audio playback on ${surface} and resumes playback on release`, async () => {
+      const record = recordWith(surface, '2x2round', { fit: true });
+      // Keep this test about an uncovered background on every surface.
+      record.layout.pages[0].widgets = [];
+      fetchMock.mockResolvedValue({ found: true, record });
+      audioTrigger.choice = { mode: 'solid', color: '#ff0000' };
+      audioPreview.choice = { mode: 'solid', color: '#00ff00' };
+      const mounted = await mountKiosk();
+      await waitFor(() => expect(document.querySelector('[data-audio-trigger-background]')).toHaveStyle({ '--panel-background-solid': '#00ff00' }));
+      expect(audioTrigger.enabled.at(-1)).toBe(false);
+      audioPreview.choice = null;
+      mounted.rerender(<UiSettingsProvider serviceOnline={true} manageDom={false}><PanelApp deviceId="panel-1" /></UiSettingsProvider>);
+      expect(audioTrigger.enabled.at(-1)).toBe(true);
+      expect(document.querySelector('[data-audio-trigger-background]')).toHaveStyle({ '--panel-background-solid': '#ff0000' });
+    });
+  }
+
   it('shows the selected audio background and restores the normal renderer without persisting it', async () => {
     fetchMock.mockResolvedValue({ found: true, record: recordWith('lcd-round', '2x2round', { fit: true }) });
     audioTrigger.choice = { mode: 'solid', color: '#ff0000' };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useTopicCallback } from '../../hooks/useMultiplexSocket';
 import { useTranslation } from '../../lib/i18n';
 import {
@@ -294,6 +294,45 @@ function usePanelPreferences(enabled: boolean): Preferences | null {
   return prefs;
 }
 
+// Auto-saved snapshots share one in-flight write and one latest pending value.
+function audioTriggerSettingsWriter(deviceId: string | null | undefined, persist: boolean) {
+  let pending: AudioTriggerSettings | null = null;
+  let inFlight: AudioTriggerSettings | null = null;
+  let failureReported = false;
+  const reportFailure = () => {
+    if (failureReported) return;
+    failureReported = true;
+    console.warn('[panel-theme] Audio Trigger settings save failed');
+  };
+  const flush = async () => {
+    if (inFlight || !pending || !deviceId || !persist) return;
+    const settings = pending;
+    pending = null;
+    inFlight = settings;
+    try {
+      const saved = await patchPanelDevice(deviceId, { backgroundAudioTrigger: settings });
+      if (saved) {
+        failureReported = false;
+        broadcastLayoutChanged();
+      } else reportFailure();
+    } catch {
+      // A newer completed edit still drains after a failed request.
+      reportFailure();
+    } finally {
+      inFlight = null;
+      if (pending) void flush();
+    }
+  };
+  return {
+    write(settings: AudioTriggerSettings) {
+      if (!deviceId || !persist) return;
+      pending = settings;
+      void flush();
+    },
+    localSettings: () => pending ?? inFlight,
+  };
+}
+
 // Panel theme/visual settings are PER-PANEL on the device record
 // (/panel/devices/{deviceId}), alongside the widget layout - NOT in shared
 // `prefs.panel`. `deviceId` selects which panel's settings, so editing the Q60
@@ -333,10 +372,17 @@ export function usePanelTheme(
   const [draftBackgroundState, setDraftBackgroundState] = useState<EffectState | null>(null);
   useEffect(() => { setDraftBackgroundState(null); }, [globalTemplates]);
 
+  // Bind the destination when the writer is created: completed edits drain even
+  // after navigation, while later edits use the next device's independent queue.
+  const audioTriggerPersistence = useMemo(() => audioTriggerSettingsWriter(deviceId, persist), [deviceId, persist]);
   useEffect(() => {
     if (!recordLoaded) return;
-    setTheme(buildPanelTheme(prefs, record));
-  }, [prefs, record, recordLoaded]);
+    const hydrated = buildPanelTheme(prefs, record);
+    const localAudioTrigger = audioTriggerPersistence.localSettings();
+    // Earlier writes can echo while a newer selected snapshot is still saving.
+    // Keep that snapshot stable without suppressing unrelated record changes.
+    setTheme(localAudioTrigger ? { ...hydrated, backgroundAudioTrigger: localAudioTrigger } : hydrated);
+  }, [prefs, record, recordLoaded, audioTriggerPersistence]);
 
   // `persist=false` (e.g. simulator) or a missing deviceId keeps changes
   // local-only (preview reacts, no write). Writes go to THIS panel's device
@@ -490,8 +536,8 @@ export function usePanelTheme(
   const commitBackgroundAudioTrigger = useCallback((settings: AudioTriggerSettings) => {
     const next = normalizeAudioTrigger(settings);
     setTheme(prev => ({ ...prev, backgroundAudioTrigger: next }));
-    persistPatch({ backgroundAudioTrigger: next });
-  }, [persistPatch]);
+    audioTriggerPersistence.write(next);
+  }, [audioTriggerPersistence]);
 
   const commitBackgroundFrost = useCallback((percent: number) => {
     const next = normalizePanelBackgroundFrost(percent);
