@@ -128,6 +128,7 @@ export function useShaderRenderer(
     vaoRef.current = vao;
 
     return () => {
+      epochRef.current += 1;
       cancelAnimationFrame(rafRef.current);
       if (programRef.current) gl.deleteProgram(programRef.current);
       gl.deleteVertexArray(vao);
@@ -150,6 +151,8 @@ export function useShaderRenderer(
   useEffect(() => {
     const gl = glRef.current;
     if (!gl || !effect) {
+      // A source fetch can still resolve after the preview was cleared.
+      epochRef.current += 1;
       cancelAnimationFrame(rafRef.current);
       // Reset flags when the effect (or GL ctx) is torn down.
       setReady(false);

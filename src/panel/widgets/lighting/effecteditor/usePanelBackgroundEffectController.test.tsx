@@ -9,7 +9,32 @@ vi.mock('../../../../hooks/useAnimateTemplates', () => ({ useAnimateTemplates: (
   return { templates: { plasma: { selected: 1, slots: [{ speed: 99 }, { speed: 98 }, { speed: 97 }, { speed: 96 }] } }, rgbActiveEffect: 'plasma' };
 } }));
 
+vi.mock('../../../../api/lighting', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../../api/lighting')>()),
+  cachedAnimateDefaults: () => ({ plasma: { selected: 0, slots: Array.from({ length: 4 }, () => defaultStateFor('plasma')) } }),
+}));
+
 describe('independent circle animation controls', () => {
+  it('commits rotation/zoom without losing other controls and resets to the shipped preset', () => {
+    const state = { ...defaultStateFor('plasma'), params: { u_zoom: 2, u_background_rotation: 90, u_background_zoom: 1.25 } };
+    const onCommit = vi.fn();
+    const { result } = renderHook(() => usePanelBackgroundEffectController({ effect: 'plasma', template: 0,
+      templatesByEffect: {}, effectState: state, independent: true,
+      onSelectEffect: vi.fn(), onTemplateSelect: vi.fn(), onPreview: vi.fn(), onCommit }));
+    expect(result.current.canReset).toBe(true);
+    act(() => {
+      result.current.onChange({ params: { u_background_rotation: 180 } });
+      result.current.onChange({ params: { u_background_zoom: 2.5 } }, true);
+    });
+    expect(onCommit).toHaveBeenLastCalledWith(expect.objectContaining({ params: { u_zoom: 2, u_background_rotation: 180, u_background_zoom: 2.5 } }));
+    expect(state.params.u_background_rotation).toBe(90);
+    expect(state.params.u_background_zoom).toBe(1.25);
+    act(() => result.current.onReset());
+    expect(onCommit).toHaveBeenLastCalledWith(defaultStateFor('plasma'));
+    expect(onCommit.mock.lastCall![0].params.u_background_rotation).toBeUndefined();
+    expect(onCommit.mock.lastCall![0].params.u_background_zoom).toBeUndefined();
+  });
+
   it('uses local animation state/default slots and commits locally without global subscriptions or RGB badges', () => {
     const onPreview = vi.fn();
     const onCommit = vi.fn();

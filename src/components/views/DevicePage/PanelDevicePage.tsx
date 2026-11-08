@@ -3,6 +3,7 @@ import { ArrowLeft, Trash2, Upload, Sparkles, LayoutDashboard, Palette, Settings
 import { ViewHeader } from '../../common/ViewHeader/ViewHeader';
 import { SettingsSection } from '../../common/SettingsSection/SettingsSection';
 import { D215RotationSettings } from './D215RotationSettings';
+import { D215RestartSettings } from './D215RestartSettings';
 import { Notice } from '../../common/Notice/Notice';
 import { WidgetContextMenu } from '../../../panel/widgets/common/WidgetContextMenu';
 import { BackgroundQuickImport, type BackgroundQuickImportHandle } from '../../../panel/background/BackgroundQuickImport';
@@ -2196,6 +2197,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                         }}
                         onSaveFailed={reportWriteFailed}
                       />
+                      {device?.panelRecordId && <D215RestartSettings recordId={device.panelRecordId} />}
                     </div>
                   )}
                   {activeTab === 'settings' && !isD215Panel && (supportsMountOrientation || recordSupportsPortrait)

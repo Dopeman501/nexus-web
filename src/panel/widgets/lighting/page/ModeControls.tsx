@@ -173,15 +173,22 @@ export function ScreenControls({ screenPP, onScreenPPChange, keepMode = false, o
 
 const LIGHTING_CROP_ASPECT = 160 / 90;
 
-function MediaControls({ keepMode, onSelectionPick, onBlockedPick }: { keepMode: boolean; onSelectionPick?: () => void; onBlockedPick?: () => void }) {
+export function MediaControls({ keepMode, onSelectionPick, onBlockedPick, localActiveId, onLocalSelect }: {
+  keepMode: boolean; onSelectionPick?: () => void; onBlockedPick?: () => void;
+  /** Local Audio Trigger draft: never play or change the shared current item. */
+  localActiveId?: string | null;
+  onLocalSelect?: (id: string | null) => void;
+}) {
   const { t } = useTranslation();
   const { push } = useToastSafe();
-  const { items, activeId, thumbs, refresh, play: playShared, removeLocal } = useMediaLibrary();
+  const { items, activeId: sharedActiveId, thumbs, refresh, play: playShared, removeLocal } = useMediaLibrary();
+  const activeId = onLocalSelect ? localActiveId ?? null : sharedActiveId;
   const play = useCallback(async (id: string) => {
+    if (onLocalSelect) { onLocalSelect(id); return; }
     if (onBlockedPick) { onBlockedPick(); return; }
     await playShared(id, keepMode);
     onSelectionPick?.();
-  }, [keepMode, onSelectionPick, onBlockedPick, playShared]);
+  }, [keepMode, onSelectionPick, onBlockedPick, onLocalSelect, playShared]);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importingName, setImportingName] = useState<string | null>(null);
@@ -288,7 +295,9 @@ function MediaControls({ keepMode, onSelectionPick, onBlockedPick }: { keepMode:
     }
     removeLocal(id);
     await refresh();
-    if (isActive) {
+    if (isActive && onLocalSelect) {
+      onLocalSelect(nextItem?.id ?? null);
+    } else if (isActive) {
       if (nextItem) {
         await playShared(nextItem.id, keepMode);
       } else if (!keepMode) {

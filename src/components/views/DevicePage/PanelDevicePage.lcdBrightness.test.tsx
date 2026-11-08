@@ -178,6 +178,7 @@ describe('PanelDevicePage cooler-LCD brightness', () => {
     // absence is the capability gate rather than an unrendered tab.
     expect(await screen.findByRole('switch', { name: 'devices.lcd.flip180' })).toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: BRIGHTNESS_LABEL })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'devices.jungle-leopard-d215.restart.label' })).toBeNull();
   });
 });
 
@@ -220,6 +221,7 @@ describe('PanelDevicePage D215 brightness', () => {
     await openSettingsTab();
 
     await waitFor(() => expect(preset(80)).toHaveAttribute('aria-pressed', 'true'));
+    expect(screen.getByRole('button', { name: 'devices.jungle-leopard-d215.restart.label' })).toBeEnabled();
     expect(fetchService).toHaveBeenCalledWith(path, expect.any(AbortSignal));
     expect(preset(100)).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByRole('slider', { name: BRIGHTNESS_LABEL })).not.toBeInTheDocument();

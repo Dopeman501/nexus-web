@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { useTranslation } from '../../../../lib/i18n';
-import { EFFECTS, categoryOf, type EffectDef, type EffectState, type EffectTemplateBundle } from '../../../../types/lighting';
+import { EFFECTS, categoryOf, type EffectDef, type EffectParamDef, type EffectState, type EffectTemplateBundle } from '../../../../types/lighting';
 import { useShaderParams } from '../../../../hooks/useShaderParams';
 import { clampToSpec } from '../../../../lib/shaderParams';
 import { isCustomEffectKey } from '../../../../api/customEffects';
@@ -32,7 +32,7 @@ export const EffectControls = memo(function EffectControls({
   effect, state, bundle,
   onTemplateSelect, canReset,
   onChange, onCommit, onReset,
-  rgbActiveSlot, panelSlots, staticMode, customDef, noPresets,
+  rgbActiveSlot, panelSlots, staticMode, customDef, noPresets, background = false, hideSensorBindings = false,
 }: {
   effect: string;
   /** Definition for a custom (Shader Studio) effect, which is not in EFFECTS. */
@@ -52,6 +52,10 @@ export const EffectControls = memo(function EffectControls({
   staticMode?: boolean;
   /** Hides the preset row, for an effect with no saved presets (a Marketplace preview). */
   noPresets?: boolean;
+  /** Chooses background labels; lighting surfaces share the same spatial parameters. */
+  background?: boolean;
+  /** Local look contracts without sensor snapshots retain the effect's default bindings. */
+  hideSensorBindings?: boolean;
 }) {
   const { t } = useTranslation();
   const def = customDef ?? EFFECTS.find(e => e.key === effect);
@@ -94,6 +98,12 @@ export const EffectControls = memo(function EffectControls({
   const satSpec = specs['u_saturation'];
   const contrastSpec = specs['u_contrast'];
   const intensitySpec = specs['u_intensity'];
+  const sharedParams: EffectParamDef[] = [
+    { name: 'u_background_rotation', label: '', labelKey: background ? 'panel.settings.backgroundRotation' : 'lighting.controls.patternRotation' },
+    { name: 'u_background_zoom', label: '', labelKey: background ? 'panel.settings.backgroundZoom' : 'lighting.controls.patternZoom' },
+  ].filter(param => specs[param.name] && !def.params.some(authored => authored.name === param.name));
+  const params = [...def.params, ...sharedParams];
+  const sharedZoom = sharedParams.some(param => param.name === 'u_background_zoom');
   // Speed always leads the sliders, so colour-slot effects take it right under
   // their wheel.
   const speedSlider = loaded && !def.hideSpeed && !staticMode && speedSpec && (
@@ -161,7 +171,7 @@ export const EffectControls = memo(function EffectControls({
             min={Math.round(intensitySpec.min * 100)} max={Math.round(intensitySpec.max * 100)}
             onChange={(v, commit) => onChange({ intensity: v / 100 }, commit)} onCommit={onCommit} />
         )}
-        {loaded && def.params.map(p => {
+        {loaded && params.map(p => {
           const spec = specs[p.name];
           if (!spec) return null;
           const label = p.labelKey ? t(p.labelKey) : p.label;
@@ -188,18 +198,21 @@ export const EffectControls = memo(function EffectControls({
               </div>
             );
           }
-          const scale = spec.step < 1 ? Math.round(1 / spec.step) : 1;
+          const spatialZoom = sharedZoom && p.name === 'u_background_zoom';
+          const scale = spatialZoom ? 100 : spec.step < 1 ? Math.round(1 / spec.step) : 1;
           const rawValue = clampToSpec(state.params[p.name] ?? spec.defaultValue, spec);
           const displayValue = Math.round(rawValue * scale);
           const min = Math.round(spec.min * scale);
           const max = Math.round(spec.max * scale);
           return (
             <Slider orientation="stacked" editable trackFill key={p.name} label={label} value={displayValue} min={min} max={max} zeroMarker={p.zeroMarker}
+              step={spatialZoom ? Math.round(spec.step * scale) : undefined}
+              formatValue={p.name === 'u_background_rotation' ? v => `${v}°` : spatialZoom ? v => `${v}%` : undefined}
               onChange={(v, commit) => onChange({ params: { ...state.params, [p.name]: v / scale } }, commit)}
               onCommit={onCommit} />
           );
         })}
-        {loaded && sensors.map(su => {
+        {loaded && !hideSensorBindings && sensors.map(su => {
           const label = sensorLabel(su);
           return (
             <div key={su.name} className={styles.paramEnumRow}>

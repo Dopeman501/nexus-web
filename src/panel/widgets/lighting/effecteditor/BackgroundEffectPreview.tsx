@@ -43,9 +43,10 @@ interface BackgroundEffectPreviewProps {
   effectState?: EffectState;
   /** panelAudioReactiveAllowed for the surface being edited; unset draws an audio effect as the default. */
   audioReactive?: boolean;
+  independentAudio?: boolean;
 }
 
-function BackgroundEffectPreviewCanvas({ effect, template, effectState, audioReactive = false }: BackgroundEffectPreviewProps) {
+function BackgroundEffectPreviewCanvas({ effect, template, effectState, audioReactive = false, independentAudio = false }: BackgroundEffectPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = resolveBackgroundDrawing(
     normalizePanelBackgroundEffect(effect),
@@ -61,17 +62,17 @@ function BackgroundEffectPreviewCanvas({ effect, template, effectState, audioRea
     stateRef.current = drawnState ?? panelBackgroundState(fx, tpl);
   }, [fx, tpl, drawnState]);
   const audioShown = audioReactive && isAudioBackgroundEffect(fx);
-  const music = useMusicReactive(audioShown);
-  const audioRef = useAudioState(audioShown && music.enabled);
-  const platform = useServicePlatform(audioShown);
-  const showSource = platform === 'windows' && music.enabled;
+  const music = useMusicReactive(audioShown && !independentAudio);
+  const audioRef = useAudioState(audioShown && (independentAudio || music.enabled));
+  const platform = useServicePlatform(audioShown && !independentAudio);
+  const showSource = !independentAudio && platform === 'windows' && music.enabled;
   const audioOutput = useLightingAudioOutput(audioShown && showSource);
   const { ready, error } = useShaderRenderer(canvasRef, fx, stateRef, audioRef, RENDER_OPTIONS);
 
   return (
     <div className={styles.preview} data-ready={ready && !error ? 'true' : 'false'}>
       <canvas ref={canvasRef} className={styles.canvas} />
-      {audioShown && (
+      {audioShown && !independentAudio && (
         <MusicReactiveControl active={music.enabled} onToggle={music.toggle} output={showSource ? audioOutput : undefined} />
       )}
     </div>

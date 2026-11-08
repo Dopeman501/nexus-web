@@ -75,6 +75,19 @@ describe('PanelThemeSettings stored audio background', () => {
     expect(last?.state).not.toBe(STORED_STATE);
   });
 
+  it('hides only display appearance controls for the reused lighting editor', () => {
+    const props = { theme: buildPanelTheme(null, null), resolvedThemeMode: 'dark', sections: 'background', ...handlers() };
+    const { rerender } = render(<PanelThemeSettings {...props as never} />);
+    expect(screen.getByRole('slider', { name: 'Frosted glass' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Background Opacity' })).toBeInTheDocument();
+    rerender(<PanelThemeSettings {...props as never} hideBackgroundAppearanceControls showMediaTab />);
+    expect(screen.queryByRole('slider', { name: 'Frosted glass' })).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Background Opacity' })).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Solid', exact: true })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Animations', exact: true })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Media', exact: true })).toBeInTheDocument();
+  });
+
   it('where audio is allowed keeps the Effect tab and the stored effect and state', () => {
     renderStoredAudio(true);
     expect(screen.getByText('lighting.rightPane.effect')).toBeTruthy();

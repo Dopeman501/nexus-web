@@ -48,6 +48,8 @@ interface DeviceCanvasProps {
   onSetSelection: (ids: Set<string>, primary: string | null) => void;
   shaderEffect?: string | null;
   shaderState?: EffectState | null;
+  /** Focused preset shown while the local shader cannot draw; the stream beneath it is global. */
+  shaderFallback?: React.ReactNode;
   /** Freezes the shader preview's clock on its current frame (server-side
    *  lighting is frozen in lockstep). Only meaningful while shaderEffect is set. */
   shaderPaused?: boolean;
@@ -1127,7 +1129,7 @@ const DeviceOverlays = memo(function DeviceOverlays({ devices, hiddenIds, foreig
   );
 });
 
-export function DeviceCanvas({ backdrop, devices, hideFrames, selectedIds, primaryDeviceId, onSelectDevice, onSetSelection, shaderEffect, shaderState, shaderPaused, audioRef, hiddenFrameIds, foreignFrames, selectedDeviceLeds, onOpenSettings, onOpenKeyReactions, keyReactiveIds, onDragActiveChange, onBeforeLayoutSave, onLayoutCommit, onSetDevicesPower, gpuAvailable, gpuState, onPickRenderGpu, stacks, stackActionsFor }: DeviceCanvasProps) {
+export function DeviceCanvas({ backdrop, devices, hideFrames, selectedIds, primaryDeviceId, onSelectDevice, onSetSelection, shaderEffect, shaderState, shaderFallback, shaderPaused, audioRef, hiddenFrameIds, foreignFrames, selectedDeviceLeds, onOpenSettings, onOpenKeyReactions, keyReactiveIds, onDragActiveChange, onBeforeLayoutSave, onLayoutCommit, onSetDevicesPower, gpuAvailable, gpuState, onPickRenderGpu, stacks, stackActionsFor }: DeviceCanvasProps) {
   const notice = gpuNotice(gpuState, gpuAvailable);
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1144,6 +1146,7 @@ export function DeviceCanvas({ backdrop, devices, hideFrames, selectedIds, prima
     <div ref={containerRef} className={styles.canvas}>
       <CanvasBackground />
       {backdrop}
+      {shaderEffect && !ready && shaderFallback}
       <canvas ref={glCanvasRef} className={`${styles.glCanvas} ${ready ? styles.glCanvasReady : ''}`} />
       {!hideFrames && <DeviceOverlays devices={devices} hiddenIds={hiddenIds} foreignFrames={foreignFrames} selectedIds={selectedIds} primaryDeviceId={primaryDeviceId} onSelectDevice={onSelectDevice} onSetSelection={onSetSelection} containerRef={containerRef} selectedDeviceLeds={selectedDeviceLeds} onOpenSettings={onOpenSettings} onOpenKeyReactions={onOpenKeyReactions} keyReactiveIds={keyReactiveIds} onDragActiveChange={onDragActiveChange} onBeforeLayoutSave={onBeforeLayoutSave} onLayoutCommit={onLayoutCommit} onSetDevicesPower={onSetDevicesPower} stacks={stacks} stackActionsFor={stackActionsFor} />}
       <CanvasNoticeBar

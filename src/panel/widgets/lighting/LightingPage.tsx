@@ -114,6 +114,7 @@ import { FullscreenShader } from './page/FullscreenShader';
 import { ModeControls } from './page/ModeControls';
 import { MediaCanvasNotice } from './page/MediaCanvasNotice';
 import { MediaBackdrop } from './page/MediaBackdrop';
+import { EffectBackdrop } from './page/EffectBackdrop';
 import { MirrorBackdrop } from './page/MirrorBackdrop';
 import { DevicePanel } from './page/DevicePanel';
 import { useZoneSizeDeviceIds } from '../../../hooks/useZoneSizeDeviceIds';
@@ -134,8 +135,11 @@ import { EffectTab, type PostProcessState } from './page/EffectTab';
 import { useThrottle } from '../../../hooks/cadence';
 import { useAudioState } from '../../../hooks/useAudioState';
 import { MusicReactiveControl } from './page/MusicReactiveControl';
+import { AudioTriggerMenu } from './page/AudioTriggerMenu';
+import { AudioTriggerIcon } from './page/AudioTriggerIcon';
 import { useLightingAudioOutput } from '../../../hooks/useLightingAudioOutput';
 import { useMusicReactive } from '../../../hooks/useMusicReactive';
+import { useLightingAudioTrigger } from '../../../hooks/useLightingAudioTrigger';
 import styles from './LightingPage.module.scss';
 
 /**
@@ -240,6 +244,7 @@ const ShaderStudio = lazy(() => import('./studio/ShaderStudio').then(m => ({ def
 const SavedEffectSections = lazy(() => import('./studio/CustomEffectsGrid').then(m => ({ default: m.SavedEffectSections })));
 const VIEW_2D = '2d' as const;
 const VIEW_3D = '3d' as const;
+const AUDIO_TRIGGER_TAB_KEY = 'audio-trigger';
 export function LightingPage({ serviceOnline, serviceState, connectionState, activeProfileId, platform = '', onSectionNavigate, accountUsername = null }: LightingViewProps) {
   const { t, language } = useTranslation();
   const { mode, setMode, rawSync, setRawSync, synced, paused: syncedPaused } = useLightingSync(serviceOnline, activeProfileId);
@@ -261,11 +266,13 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   // popover anchors on the tab row, which is why the ref sits on the element
   // wrapping the header rather than on the tab itself.
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [audioTriggerOpen, setAudioTriggerOpen] = useState(false);
   const modeMenuAnchorRef = useRef<HTMLDivElement | null>(null);
   const closeModeMenu = useCallback(() => setModeMenuOpen(false), []);
   // A running effect keeps the mapping it was started with, so a user's mode switch updates only that flag.
   const reapplyMappingRef = useRef<(toSimple: boolean) => void>(() => {});
   const setDashboardMode = useCallback((next: 'simple' | 'advanced') => {
+    setAudioTriggerOpen(false);
     updateUiSettings({ lightingDashboardMode: next });
     if ((next === 'simple') !== simpleDashboard) reapplyMappingRef.current(next === 'simple');
   }, [updateUiSettings, simpleDashboard]);
@@ -662,6 +669,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   }, [canvasFocusIds, deviceStacks, editorTarget, activeProfileId]);
 
   const { enabled: musicReactive, toggle: handleMusicReactiveToggle, refresh: refreshMusicReactive } = useMusicReactive(serviceOnline);
+  const audioTrigger = useLightingAudioTrigger(serviceOnline && !simpleDashboard, activeProfileId);
 
   // Optimistic local mirror of useLightingSync().paused, reconciled whenever
   // the server value changes (multiplex refetch, mode switch resetting it).
@@ -2449,6 +2457,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
     simpleDescription: t('lighting.modeMenu.simpleDesc'),
     advancedDescription: t('lighting.modeMenu.advancedDesc'),
     onOff: () => {
+      setAudioTriggerOpen(false);
       // Already off: asking again would re-issue the stop.
       if (synced && mode === 'none') return;
       pulseCards(pressReach(visibleDevices, pins, selectedDeviceIds, true));
@@ -2502,10 +2511,11 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
         ) : undefined,
       };
     }),
+    { key: AUDIO_TRIGGER_TAB_KEY, label: t('lighting.audioTrigger.title'), icon: <AudioTriggerIcon /> },
   ];
   // The strip marks the mode tab while lighting is off - it is the tab Off now
   // lives on. Every other mode still marks its own tab.
-  const activeTabKey = !synced ? undefined
+  const activeTabKey = audioTriggerOpen ? AUDIO_TRIGGER_TAB_KEY : !synced ? undefined
     : (viewMode === 'none' ? MODE_MENU_TAB_KEY : viewMode);
   const globalTabKey = !synced ? undefined
     : (mode === 'none' ? MODE_MENU_TAB_KEY : mode);
@@ -2543,6 +2553,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   // The cards a press on `key` changes, outlined on hover and pulsed on press: with a selection
   // and a pinnable mode, the cards it pins; otherwise the global reach.
   const tabPressReach = useCallback((key: string): Set<string> | undefined => {
+    if (key === AUDIO_TRIGGER_TAB_KEY) return undefined;
     // Off: the press starts the mode for every card, whatever is selected.
     if (mode === 'none' && key !== 'none') return pressReach(visibleDevices, pins, new Set());
     if (selectedDeviceIds.size > 0 && PINNABLE_MODES.has(key)) {
@@ -2558,11 +2569,22 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   // drops the menu, which the tab row keeps "inside" its anchor.
   const handleTabChange = (key: string) => {
     setHoveredTab(null);
+    if (key === AUDIO_TRIGGER_TAB_KEY) {
+      closeModeMenu();
+      setAudioTriggerOpen(true);
+      return;
+    }
     if (key === MODE_MENU_TAB_KEY) {
       setModeMenuOpen(open => !open);
       return;
     }
     closeModeMenu();
+    // Returning to the open look is navigation only; it must not repin a selection.
+    if (audioTriggerOpen && key === viewMode) {
+      setAudioTriggerOpen(false);
+      return;
+    }
+    setAudioTriggerOpen(false);
     const reach = tabPressReach(key);
     if (reach) pulseCards(reach);
     // Off: a pin would not restart the stopped engine, so the press starts the mode globally.
@@ -2643,15 +2665,18 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   // The canvas previews the shared effect canvas, which Static does not sample
   // and Off has nothing to show on.
   const showCanvas = viewMode !== 'static' && viewMode !== 'none';
+  // The global preview follows native trigger output. A focused device pin
+  // previews the look being selected/edited, including while the trigger is idle.
+  const nativeTriggerPreview = !pinTarget && audioTrigger.value.enabled && audioTrigger.value.looks.length > 0;
   // The music button shows for the visible effect, not the service's running
   // mode, so audio capture and the source picker follow the same condition.
   const showMusicButton = shaderMode && !!dockEffect && !!dockState && !mixedSelection
     && !!(EFFECTS.find(e => e.key === dockEffect)?.audio || dockCustom?.audio);
-  const audioRef = useAudioState(musicReactive && showMusicButton);
+  const audioRef = useAudioState(musicReactive && showMusicButton && !audioTriggerOpen);
   // Windows only: the macOS capture takes the whole system mix, so there is no
   // source to name or switch.
   const showAudioOutput = musicReactive && isWindows && showMusicButton;
-  const audioOutput = useLightingAudioOutput(showAudioOutput);
+  const audioOutput = useLightingAudioOutput(showAudioOutput || (audioTriggerOpen && isWindows && serviceOnline));
   // The device list is the canvas filter: the canvas draws exactly what the
   // list has selected. Which of those frames is focused is the canvas's own
   // state (`canvasFocusIds`), so a canvas click never removes a frame.
@@ -2894,16 +2919,17 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
           always-mounted effect dock. Both side columns span the tab row so they
           rise to the very top of the page. Capped at --page-max (pageBody) so
           the page matches every other view's width. */}
-      <div ref={bodyRef} className={`${styles.body} ${dockCollapsed ? styles.bodyDockCollapsed : ''} pageBody`}>
+      <div ref={bodyRef} className={`${styles.body} ${dockCollapsed ? styles.bodyDockCollapsed : ''} ${audioTriggerOpen ? styles.bodyAudioTrigger : ''} pageBody`}>
         <div ref={topRowRef} className={styles.topRow}>
           <div className={`${styles.tabsCell} ${styles.tabsAnchor}`} ref={modeMenuAnchorRef}>
             <ViewHeader
               title={t('lighting.title')}
               tabs={modeTabs}
+              tabArrows
               activeTab={activeTabKey}
               onTabChange={handleTabChange}
               onTabHover={setHoveredTab}
-              tabActions={(
+              tabActions={!audioTriggerOpen && (
                 <>
                 {/* Left of the toolbar: the rail is right-aligned, so the
                     toolbar keeps its position when the button comes and goes. */}
@@ -2935,6 +2961,11 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
             {modeMenuNode}
           </div>
         </div>
+        {audioTriggerOpen ? (
+          <AudioTriggerMenu key={activeProfileId ?? ''} value={audioTrigger.value} onChange={audioTrigger.change} stateFor={stateFor}
+            busy={audioTrigger.loading || audioTrigger.saving || !audioTrigger.available} error={audioTrigger.error} onRetry={audioTrigger.refresh}
+            output={isWindows ? audioOutput : undefined} />
+        ) : <>
         <div className={`${styles.paneHeader} ${styles.headerLeft}`}>
           <div className={styles.paneTitleGroup}>
             <span className={styles.paneTitle}>{t('lighting.rightPane.devices')}</span>
@@ -3132,8 +3163,8 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
                   devices={visibleDevices}
                   selectedDeviceId={primaryDeviceId}
                   onSelectDevice={handleSelectFromScene}
-                  shaderEffect={shaderMode ? previewEffect : null}
-                  shaderState={shaderMode ? previewShaderState : null}
+                  shaderEffect={shaderMode && !nativeTriggerPreview ? previewEffect : null}
+                  shaderState={shaderMode && !nativeTriggerPreview ? previewShaderState : null}
                   shaderPaused={paused}
                   audioRef={audioRef}
                   onIdentify={id => { identifyLightingDevice(id).catch(() => { /* silent */ }); }}
@@ -3141,7 +3172,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
                 />
               </Suspense>
             ) : (
-              <DeviceCanvas backdrop={viewMode === 'gif' && mode !== 'gif' ? <MediaBackdrop /> : viewMode === 'screen' && mode !== 'screen' ? <MirrorBackdrop /> : undefined} devices={canvasDevices} hideFrames={selectedDeviceIds.size === 0} selectedIds={canvasFocusIds} primaryDeviceId={primaryDeviceId} onSelectDevice={handleFocusDevice} onSetSelection={handleSetFocus} shaderEffect={shaderMode ? previewEffect : null} shaderState={shaderMode ? previewShaderState : null} shaderPaused={paused} audioRef={audioRef} hiddenFrameIds={hiddenFrameIds} foreignFrames={foreignFrames} selectedDeviceLeds={selectedDeviceLeds} onOpenSettings={handleOpenSettings} keyReactiveIds={keyReactiveIds} onOpenKeyReactions={setKeyReactionsId} onDragActiveChange={handleDragActiveChange} onBeforeLayoutSave={handleBeforeLayoutSave} onLayoutCommit={handleLayoutCommit} onSetDevicesPower={handleSetDevicesPower} stacks={deviceStacks} stackActionsFor={stackActionsFor} gpuAvailable={serviceState.lighting?.gpuAvailable ?? true} gpuState={serviceState.lighting?.gpuState} onPickRenderGpu={canPickRenderGpu ? handlePickRenderGpu : undefined} />
+              <DeviceCanvas backdrop={viewMode === 'gif' && mode !== 'gif' ? <MediaBackdrop /> : viewMode === 'screen' && mode !== 'screen' ? <MirrorBackdrop /> : undefined} shaderFallback={pinTarget ? <EffectBackdrop effect={previewEffect} slot={dockSlot} version={versionForSlot(previewEffect, dockSlot)} frozen={paused} gpuAvailable={serviceState.lighting?.gpuAvailable} /> : undefined} devices={canvasDevices} hideFrames={selectedDeviceIds.size === 0} selectedIds={canvasFocusIds} primaryDeviceId={primaryDeviceId} onSelectDevice={handleFocusDevice} onSetSelection={handleSetFocus} shaderEffect={shaderMode && !nativeTriggerPreview ? previewEffect : null} shaderState={shaderMode && !nativeTriggerPreview ? previewShaderState : null} shaderPaused={paused} audioRef={audioRef} hiddenFrameIds={hiddenFrameIds} foreignFrames={foreignFrames} selectedDeviceLeds={selectedDeviceLeds} onOpenSettings={handleOpenSettings} keyReactiveIds={keyReactiveIds} onOpenKeyReactions={setKeyReactionsId} onDragActiveChange={handleDragActiveChange} onBeforeLayoutSave={handleBeforeLayoutSave} onLayoutCommit={handleLayoutCommit} onSetDevicesPower={handleSetDevicesPower} stacks={deviceStacks} stackActionsFor={stackActionsFor} gpuAvailable={serviceState.lighting?.gpuAvailable ?? true} gpuState={serviceState.lighting?.gpuState} onPickRenderGpu={canPickRenderGpu ? handlePickRenderGpu : undefined} />
             )}
             {viewMode === 'gif' && <MediaCanvasNotice />}
             {shaderMode && dockEffect && dockState && !mixedSelection && (
@@ -3286,6 +3317,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
             </div>
         </div>
         )}
+        </>}
       </div>
       {fullscreenOpen && !mixedSelection && dockEffect && dockState && dockBundle && (
         // Shows and edits what the dock edits, so its handlers always write to

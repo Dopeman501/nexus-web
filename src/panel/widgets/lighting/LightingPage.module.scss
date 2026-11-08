@@ -58,12 +58,17 @@
   position: relative; // anchor for the settings drawer
 }
 
+.bodyAudioTrigger {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 // Row 1, spanning every column: mode tabs from the page's left edge, presets at
 // the right. A flex row rather than grid cells so the two can negotiate - the
 // tab bar cannot compress below its labels, so when the row runs short the
 // presets are what gives, instead of the tabs overflowing across them.
 .topRow {
-  grid-column: 1 / span 3;
+  grid-column: 1 / -1;
   grid-row: 1;
   display: flex;
   align-items: center;
@@ -2020,6 +2025,14 @@
   inset: 0;
   width: 100%;
   height: 100%;
+  pointer-events: none;
+}
+
+// A focused look covers the global stream while its local shader is unavailable.
+.effectBackdrop {
+  position: absolute;
+  inset: 0;
+  background: #080808;
   pointer-events: none;
 }
 

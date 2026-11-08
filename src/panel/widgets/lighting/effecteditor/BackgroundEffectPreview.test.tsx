@@ -68,6 +68,15 @@ describe('BackgroundEffectPreview audio source picker', () => {
     expect(service.audioEnabled.at(-1)).toBe(false);
   });
 
+  it('previews local trigger audio without enabling or exposing Music Reactive', () => {
+    service.music = false;
+    render(<BackgroundEffectPreview {...base} audioReactive independentAudio />);
+    expect(service.audioEnabled.at(-1)).toBe(true);
+    expect(screen.queryByRole('button', { name: 'lighting.musicReactive' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'lighting.audioOutput.label' })).toBeNull();
+    expect(service.writes).toEqual([]);
+  });
+
   it('shows no picker when audio is not allowed or the effect is not audio', () => {
     const { rerender } = render(<BackgroundEffectPreview {...base} />);
     expect(screen.queryByRole('button', { name: 'lighting.musicReactive' })).toBeNull();

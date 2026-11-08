@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ModeControls, ScreenControls } from './ModeControls';
+import { MediaControls, ModeControls, ScreenControls } from './ModeControls';
 import { openMediaFolder } from '../../../../api/mediaLibrary';
 import { fetchScreenEffect, fetchScreenMonitors, setScreenEffect, startScreenMirror } from '../../../../api/lighting';
 
@@ -11,8 +11,9 @@ const toast = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('../../../../components/common/Toast/Toast', () => ({
   useToastSafe: () => ({ push: toast.push }),
 }));
+const library = vi.hoisted(() => ({ play: vi.fn(), items: [] as import('../../../../api/mediaLibrary').MediaItem[] }));
 vi.mock('../effecteditor/useMediaLibrary', () => ({
-  useMediaLibrary: () => ({ items: [], activeId: null, thumbs: {}, refresh: vi.fn(() => Promise.resolve()), play: vi.fn(), removeLocal: vi.fn() }),
+  useMediaLibrary: () => ({ items: library.items, activeId: null, thumbs: {}, refresh: vi.fn(() => Promise.resolve()), play: library.play, removeLocal: vi.fn() }),
 }));
 vi.mock('../../../../api/mediaLibrary', async importOriginal => ({
   ...(await importOriginal<typeof import('../../../../api/mediaLibrary')>()),
@@ -108,5 +109,19 @@ describe('media controls open folder', () => {
     await vi.mocked(openMediaFolder).mock.results.at(-1)!.value;
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(toast.push).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('Audio Trigger local media picker', () => {
+  it('selects a local snapshot without playing the shared media or changing mode', () => {
+    library.play.mockClear();
+    library.items = [{ id: 'clip-one', name: 'Clip.gif', type: 'animated', frames: 30, fps: 30, width: 160, height: 90, importedAtUnixMs: 0 }];
+    const onLocalSelect = vi.fn();
+    render(<MediaControls keepMode={false} localActiveId={null} onLocalSelect={onLocalSelect} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Clip' }));
+    expect(onLocalSelect).toHaveBeenCalledWith('clip-one');
+    expect(library.play).not.toHaveBeenCalled();
+    library.items = [];
   });
 });

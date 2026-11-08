@@ -1,12 +1,23 @@
 import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchPins } from '../../../api/lighting';
+import { fetchPins, fetchMusicReactive, setMusicReactive, startAnimate, startStatic, startScreenMirror, stopLighting, setPins } from '../../../api/lighting';
+import { fetchLightingAudioTrigger, setLightingAudioTrigger, type LightingAudioTriggerSettings } from '../../../api/lightingAudioTrigger';
 import { UiSettingsProvider } from '../../../hooks/useUiSettings';
 import { LightingPage } from './LightingPage';
 
 const topicHandlers = vi.hoisted(() => ({ lighting: [] as (() => void)[] }));
 const syncState = vi.hoisted(() => ({ mode: 'animate', rawSync: 'fire' }));
+const triggerState = vi.hoisted(() => ({ value: { enabled: false, intensity: 50, switchDelay: 1, shuffle: false, looks: [] } as LightingAudioTriggerSettings }));
+
+vi.mock('../../../api/lightingAudioTrigger', async importOriginal => ({
+  ...(await importOriginal<typeof import('../../../api/lightingAudioTrigger')>()),
+  fetchLightingAudioTrigger: vi.fn(() => Promise.resolve(triggerState.value)),
+  setLightingAudioTrigger: vi.fn((value: typeof triggerState.value) => {
+    triggerState.value = structuredClone(value);
+    return Promise.resolve(value);
+  }),
+}));
 
 vi.mock('../../../hooks/useLightingSync', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../hooks/useLightingSync')>()),
@@ -49,6 +60,9 @@ vi.mock('./page/AnimateGrid', () => ({
   }) => (
     <div>
       <div data-testid="grid-effect" onClick={() => onSelect?.('stripes')}>{effect}</div>
+      {['ridgeline', 'chevron', 'terrace'].map(key => (
+        <button key={key} type="button" onClick={() => onSelect?.(key)}>{`pick:${key}`}</button>
+      ))}
       <div data-testid="grid-pins">{[...(pinnedDevices ?? [])].map(([k, v]) => `${k}=${v.join('+')}`).join(';')}</div>
     </div>
   ),
@@ -61,6 +75,7 @@ vi.mock('./page/FullscreenShader', () => ({
   ),
 }));
 vi.mock('./page/ModeControls', () => ({
+  MediaControls: () => null,
   ModeControls: ({ mode, onSelectionPick, keepMode, onBlockedPick }: { mode: string; onSelectionPick?: () => void; keepMode?: boolean; onBlockedPick?: () => void }) => (
     <div data-testid="mode-controls" data-mode={mode} data-keep-mode={String(!!keepMode)} data-blocked={String(!!onBlockedPick)}>
       {onSelectionPick && <button type="button" onClick={onSelectionPick}>selection-pick</button>}
@@ -107,7 +122,9 @@ vi.mock('./page/DevicePanel', () => ({
     useEffect(() => { onPinHintTarget?.(target); }, [onPinHintTarget, target]);
     return (
       <div data-testid="rail" data-pins={Object.keys(pins ?? {}).sort().join(',')} data-hint-ids={pinHintIds ? [...pinHintIds].join(',') : 'none'}>
+        <button type="button" onClick={() => onSetSelection(new Set(['a']), 'a')}>select-a</button>
         <button type="button" onClick={() => onSetSelection(new Set(['a', 'b']), 'a')}>select-ab</button>
+        <button type="button" onClick={() => onSetSelection(new Set(), null)}>clear-selection</button>
         <button type="button" onClick={() => onSetPin?.(['a', 'b'], true)}>pin-ab</button>
         <button type="button" onClick={() => onSetPin?.(['a'], false)}>unpin-a-menu</button>
         <button type="button" onClick={() => { onSetPin?.(['a'], false); onPinHintPress?.(); }}>press-hinted</button>
@@ -259,3 +276,102 @@ describe('LightingPage canvas header', () => {
 
 // The desk is shelved in the product; this test keeps the 3D view switch working.
 vi.mock('../../../lib/scene/sceneFeature', () => ({ DESK_ENABLED: true, SCENE_3D: true }));
+
+describe('LightingPage Audio Trigger navigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    topicHandlers.lighting = [];
+    syncState.mode = 'animate';
+    syncState.rawSync = 'fire';
+    triggerState.value = { enabled: false, intensity: 50, switchDelay: 1, shuffle: false, looks: [] };
+    vi.mocked(fetchLightingAudioTrigger).mockImplementation(async () => triggerState.value);
+    vi.mocked(setLightingAudioTrigger).mockImplementation(async value => {
+      triggerState.value = structuredClone(value) as typeof triggerState.value;
+      return value;
+    });
+    vi.mocked(fetchMusicReactive).mockResolvedValue({ enabled: false });
+    vi.mocked(setMusicReactive).mockResolvedValue({ status: 'ok' } as never);
+    localStorage.clear();
+    localStorage.setItem('nexus_settings', JSON.stringify({ general: { lightingDashboardMode: 'advanced' } }));
+  });
+
+  it('places Audio Trigger immediately after Mirror and opens it without changing output or pins', async () => {
+    renderPage();
+    await waitFor(() => expect(fetchPins).toHaveBeenCalled());
+    await waitFor(() => expect(startAnimate).toHaveBeenCalled());
+    const tabs = screen.getByTestId('tabs');
+    expect(within(tabs).getAllByRole('button').map(button => button.textContent).slice(-2))
+      .toEqual(['tab:screen', 'tab:audio-trigger']);
+    fireEvent.click(screen.getByText('select-ab'));
+    const mutations = [startAnimate, startStatic, startScreenMirror, stopLighting, setPins, setMusicReactive, setLightingAudioTrigger];
+    const before = mutations.map(mutation => vi.mocked(mutation).mock.calls.length);
+    fireEvent.click(screen.getByText('tab:audio-trigger'));
+    expect(tabs).toHaveAttribute('data-active', 'audio-trigger');
+    const menu = screen.getByRole('tabpanel', { name: 'lighting.audioTrigger.title' });
+    expect(menu.querySelector('button')).toHaveAttribute('role', 'switch');
+    expect(mutations.map(mutation => vi.mocked(mutation).mock.calls.length)).toEqual(before);
+    fireEvent.click(screen.getByText('tab:animate'));
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
+    expect(mutations.map(mutation => vi.mocked(mutation).mock.calls.length)).toEqual(before);
+  });
+
+  it('hydrates, saves and retains the audio switch after leaving and reopening the tab', async () => {
+    triggerState.value.enabled = true;
+    renderPage();
+    fireEvent.click(screen.getByText('tab:audio-trigger'));
+    const toggle = await screen.findByRole('switch', { name: 'lighting.audioTrigger.title' });
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'));
+    fireEvent.click(toggle);
+    await waitFor(() => expect(vi.mocked(setLightingAudioTrigger).mock.calls[0]?.[0]).toMatchObject({ enabled: false }));
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
+    fireEvent.click(screen.getByText('tab:animate'));
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('grid-effect')).toHaveTextContent('fire');
+    fireEvent.click(screen.getByText('tab:audio-trigger'));
+    expect(screen.getByRole('switch', { name: 'lighting.audioTrigger.title' })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('restores the previous switch value when the service rejects a save', async () => {
+    vi.mocked(setLightingAudioTrigger).mockResolvedValue(null);
+    renderPage();
+    fireEvent.click(screen.getByText('tab:audio-trigger'));
+    const toggle = screen.getByRole('switch', { name: 'lighting.audioTrigger.title' });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    fireEvent.click(toggle);
+    await waitFor(() => expect(vi.mocked(setLightingAudioTrigger).mock.calls[0]?.[0]).toMatchObject({ enabled: true }));
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByText('lighting.audioTrigger.saveError')).toBeInTheDocument();
+  });
+
+  it.each(['select-a', 'select-ab'])('previews each picked device look while Audio Trigger is enabled with %s', async selection => {
+    triggerState.value = { ...triggerState.value, enabled: true, looks: [{ mode: 'static', color: '#ff0000' }] };
+    renderPage();
+    await waitFor(() => expect(startAnimate).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('preview')).toHaveAttribute('data-effect', ''));
+    const starts = vi.mocked(startAnimate).mock.calls.length;
+    fireEvent.click(screen.getByText(selection));
+
+    for (const effect of ['ridgeline', 'chevron', 'terrace']) {
+      fireEvent.click(screen.getByText(`pick:${effect}`));
+      await waitFor(() => expect(screen.getByTestId('grid-effect')).toHaveTextContent(effect));
+      expect(screen.getByTestId('preview')).toHaveAttribute('data-effect', effect);
+      expect(vi.mocked(setPins).mock.calls.at(-1)?.[1]).toEqual({ kind: 'animate', effect });
+    }
+
+    expect(startAnimate).toHaveBeenCalledTimes(starts);
+    expect(setLightingAudioTrigger).not.toHaveBeenCalled();
+    expect(triggerState.value).toMatchObject({ enabled: true, looks: [{ mode: 'static', color: '#ff0000' }] });
+    fireEvent.click(screen.getByText('clear-selection'));
+    expect(screen.getByTestId('preview')).toHaveAttribute('data-effect', '');
+    expect(screen.getByTestId('grid-effect')).toHaveTextContent('fire');
+  });
+
+  it('uses native streamed output for enabled trigger looks and restores the local preview on remote disable', async () => {
+    triggerState.value = { ...triggerState.value, enabled: true, looks: [{ mode: 'static', color: '#ff0000' }] };
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('preview')).toHaveAttribute('data-effect', ''));
+    triggerState.value = { ...triggerState.value, enabled: false };
+    for (const refresh of [...topicHandlers.lighting]) refresh();
+    await waitFor(() => expect(screen.getByTestId('preview')).toHaveAttribute('data-effect', 'fire'));
+  });
+});

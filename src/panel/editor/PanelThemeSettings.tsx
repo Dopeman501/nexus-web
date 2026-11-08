@@ -188,6 +188,14 @@ export interface PanelThemeSettingsProps {
   independentBackground?: boolean;
   /** Audio choices are individual backgrounds, never nested slideshows. */
   hideSlideshowControls?: boolean;
+  /** Lighting reuses this local editor without display appearance settings. */
+  hideBackgroundAppearanceControls?: boolean;
+  /** Alternate media library, retaining the shared category/gallery layout. */
+  mediaPicker?: ReactNode;
+  hideSensorBindings?: boolean;
+  staticEffect?: boolean;
+  /** Preview capture is independent of the global Music Reactive switch. */
+  independentAudioPreview?: boolean;
 }
 
 export function PanelThemeSettings({
@@ -242,6 +250,11 @@ export function PanelThemeSettings({
   audioReactive = false,
   independentBackground = false,
   hideSlideshowControls = false,
+  hideBackgroundAppearanceControls = false,
+  mediaPicker,
+  hideSensorBindings = false,
+  staticEffect = false,
+  independentAudioPreview = false,
 }: PanelThemeSettingsProps) {
   const showTheme = sections !== 'background';
   const showBackground = sections !== 'theme';
@@ -555,6 +568,7 @@ export function PanelThemeSettings({
                 onChange={onImmersiveBackdropCommit}
               />
             )}
+            {!hideBackgroundAppearanceControls && <>
             {/* Frost and opacity stay visible under every backdrop, which
                 hides the theme-only mode controls below. */}
             <SettingSlider
@@ -586,6 +600,7 @@ export function PanelThemeSettings({
                 )}
               </>
             )}
+            </>}
             {theme.backdrop !== 'theme' ? null : (
             <>
             {theme.backgroundMode === 'solid' ? (
@@ -605,7 +620,7 @@ export function PanelThemeSettings({
               <>
                 {backgroundModeChips}
                 {audioTriggerControls}
-                <BackgroundMediaPicker
+                {mediaPicker ?? <BackgroundMediaPicker
                   deviceId={deviceId ?? ''}
                   activeId={theme.backgroundMediaId}
                   deviceAspect={deviceAspect}
@@ -622,7 +637,7 @@ export function PanelThemeSettings({
                   onSlideshowChange={onBackgroundSlideshowCommit}
                   order={theme.backgroundMediaOrder}
                   onOrderChange={onBackgroundMediaOrderCommit}
-                />
+                />}
               </>
             ) : (
               <>
@@ -634,6 +649,7 @@ export function PanelThemeSettings({
                     template={backgroundTemplate}
                     effectState={backgroundEffectState}
                     audioReactive={audioReactive}
+                    independentAudio={independentAudioPreview}
                   />
                   <ChipGroup
                     fullWidth
@@ -669,6 +685,9 @@ export function PanelThemeSettings({
                   />
                 ) : (
                   <EffectControls
+                    hideSensorBindings={hideSensorBindings}
+                    staticMode={staticEffect}
+                    background
                     effect={backgroundController.effect}
                     state={backgroundController.state}
                     bundle={backgroundController.bundle}

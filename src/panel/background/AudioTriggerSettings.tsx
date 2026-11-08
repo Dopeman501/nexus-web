@@ -12,6 +12,7 @@ import { AUDIO_TRIGGER_MAX_BACKGROUNDS, type AudioTriggerSettings } from './audi
 import { useBackgroundMedia } from './useBackgroundMedia';
 import styles from './AudioTriggerSettings.module.scss';
 import { AudioTriggerMenuContent } from './AudioTriggerMenuContent';
+import type { PanelThemeSettingsProps } from '../editor/PanelThemeSettings';
 import { useAudioTriggerPreviewPublisher } from './useAudioTriggerPreviewPublisher';
 
 const DEFAULT_SETTINGS: AudioTriggerSettings = { enabled: false, intensity: 50, switchDelay: 1, shuffle: false, backgrounds: [] };
@@ -126,11 +127,12 @@ function AudioTriggerBackgrounds({ value, onChange, onClose, ...device }: Props 
 }
 
 /** Reuses familiar controls; callers choose whether finished edits also persist. */
-export function AudioBackgroundEditor({ background, onChange, onCommit, themeMode, deviceId, deviceAspect, deviceW, deviceH, round }: Omit<Props, 'value' | 'onChange'> & {
+export function AudioBackgroundEditor({ background, onChange, onCommit, themeMode, deviceId, deviceAspect, deviceW, deviceH, round,
+  hideBackgroundAppearanceControls, mediaPicker, hideSensorBindings, independentAudioPreview, staticEffect }: Omit<Props, 'value' | 'onChange'> & {
   background: D215PanelBackground;
   onChange: (background: D215PanelBackground) => void;
   onCommit?: (background: D215PanelBackground) => void;
-}) {
+} & Pick<PanelThemeSettingsProps, 'hideBackgroundAppearanceControls' | 'mediaPicker' | 'hideSensorBindings' | 'independentAudioPreview' | 'staticEffect'>) {
   const theme = d215BackgroundTheme(background);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -146,7 +148,9 @@ export function AudioBackgroundEditor({ background, onChange, onCommit, themeMod
   const color = (hex: string, commit: boolean) => { const pair = panelBackgroundPair(hex); patch({ mode: 'solid', color: pair.dark, colorLight: pair.light }, commit); };
   return <PanelThemeSettings theme={theme} sections={BACKGROUND_SECTION} resolvedThemeMode={themeMode}
     independentBackground hideSlideshowControls showEffectSearch showImmersiveBackdrop={false}
-    showMediaTab={!!deviceId} deviceId={deviceId} audioReactive
+    showMediaTab={!!deviceId || !!mediaPicker} deviceId={deviceId} audioReactive
+    hideBackgroundAppearanceControls={hideBackgroundAppearanceControls} mediaPicker={mediaPicker}
+    hideSensorBindings={hideSensorBindings} independentAudioPreview={independentAudioPreview} staticEffect={staticEffect}
     deviceAspect={deviceAspect} roundDisplay={round} deviceW={deviceW} deviceH={deviceH}
     onBackgroundPreview={hex => color(hex, false)} onBackgroundCommit={hex => color(hex, true)} onBackgroundModeCommit={mode => patch({ mode })}
     onBackgroundEffectCommit={effect => patch({ mode: 'shader', effect, template: 0, effectState: panelBackgroundState(effect, 0) })}
