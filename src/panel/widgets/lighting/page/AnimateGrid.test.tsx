@@ -18,6 +18,14 @@ function mouseMoves() {
 }
 
 describe('AnimateGrid live-on-RGB bulb', () => {
+  it('names and searches custom styles by their saved name', () => {
+    const onSelect = vi.fn();
+    render(<AnimateGrid effect="custom:lasers" effects={[{ key: 'custom:lasers', labelKey: '', params: [] }]}
+      labelFor={() => 'Lasers'} query="Lasers" onSelect={onSelect} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Lasers' }));
+    expect(onSelect).toHaveBeenCalledWith('custom:lasers');
+  });
+
   it('marks exactly the rgb-active effect cell with a bulb', () => {
     const { container } = render(
       <AnimateGrid

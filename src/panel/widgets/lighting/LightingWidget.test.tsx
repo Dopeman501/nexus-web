@@ -21,14 +21,17 @@ vi.mock('../../../api/lighting', () => ({
   cachedAnimateDefaults: vi.fn(() => null),
   fetchAnimateSettings: vi.fn(() => Promise.resolve({ effect: 'rainbow', templates: {} })),
   fetchStaticSettings: vi.fn(() => Promise.resolve({ effect: 'simplewhite', states: {} })),
-  startStatic: vi.fn(() => Promise.resolve()),
+  startStatic: vi.fn(() => Promise.resolve({})),
   fetchCurrentSync: vi.fn(() => Promise.resolve({ sync: 'rainbow' })),
   fetchLightingStatus: vi.fn(() => Promise.resolve({ gpuAvailable: true })),
   fetchLightingDevices: vi.fn(() => Promise.resolve({ isInit: true, devices: [] })),
+  fetchPins: vi.fn(() => Promise.resolve({})),
+  setPins: vi.fn(() => Promise.resolve(true)),
+  setLightingPaused: vi.fn(() => Promise.resolve({})),
   fetchScreenEffect: vi.fn(() => Promise.resolve({ hue: 0, colorize: 0, saturation: 1, contrast: 1, flipX: false, flipY: false })),
   setMusicReactive: vi.fn(() => Promise.resolve()),
   setScreenEffect: vi.fn(() => Promise.resolve()),
-  startAnimate: vi.fn(() => Promise.resolve()),
+  startAnimate: vi.fn(() => Promise.resolve({})),
   startScreenMirror: vi.fn(() => Promise.resolve()),
   stopLighting: vi.fn(() => Promise.resolve()),
 }));
@@ -778,4 +781,5 @@ describe('LightingWidget', () => {
       expect(document.querySelector('[data-effect-key="custom:gone"]')).not.toBeInTheDocument();
     });
   });
+
 });

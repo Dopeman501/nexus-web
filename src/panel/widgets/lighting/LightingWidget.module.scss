@@ -11,6 +11,18 @@
   color: var(--text);
 }
 
+.pickError {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 2;
+  padding: 4px;
+  background: var(--surface, #222);
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+
 // The preview area spans the widget flush: negative margins cancel the card
 // padding so arrows and the state flash reach the edges (the mode-button row,
 // when present, keeps the bottom gap). The widget thumbnail itself renders as

@@ -30,6 +30,7 @@ interface Props {
   /** The tile's effect and the preset slot its thumbnail shows. */
   onEffect: (key: string, slot: number) => void;
   onOpen: (() => void) | null;
+  failed?: boolean;
 }
 
 /** The cache token for a tile's thumbnail: its preset's content, plus the effect's save time for a Studio effect. */
@@ -76,7 +77,7 @@ function useEffectThumbs(
 
 export function LightingSwatches({
   kind, size, activeEffect, activeColor, templates, preview,
-  showRecents, recentColors, recentAnimations, onColor, onEffect, onOpen,
+  showRecents, recentColors, recentAnimations, onColor, onEffect, onOpen, failed,
 }: Props) {
   const { t } = useTranslation();
   const { cols, rows, slots } = swatchGrid(size, preview || onOpen !== null);
@@ -100,6 +101,7 @@ export function LightingSwatches({
 
   return (
     <div className={styles.swatchInset}>
+      {failed && <span className={styles.pickError} role="alert">{t('lighting.widget.applyFailed')}</span>}
       <div
         className={styles.swatchGrid}
         data-kind={kind}

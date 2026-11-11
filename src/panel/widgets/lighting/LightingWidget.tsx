@@ -51,10 +51,12 @@ import { useFeatureFlags, useUiSettings } from '../../../hooks/useUiSettings';
 import { resolveAdvancedMode } from '../common/AdvancedModeSettings';
 import { useStateChangePulse } from '../common/useStateChangePulse';
 import { usePanelPreview } from '../common/PanelPreviewContext';
+import { usePanelImmersiveOpen } from '../common/PanelImmersiveContext';
 import { LightingLivePreview } from './LightingLivePreview';
 import { LightingShaderPreview } from './LightingShaderPreview';
 import { LightingSwatches } from './LightingSwatches';
 import { useLightingRecents } from './useLightingRecents';
+import { lightingPickAccepted, useLightingQuickPick } from './useLightingQuickPick';
 import { usePanelOpenWidget } from '../common/PanelOpenWidgetContext';
 import { type GpuState } from '../../../components/common/CanvasNoticeBar/gpuNotice';
 import type { WidgetProps } from '../types';
@@ -217,6 +219,9 @@ export function LightingWidget({ widget, immersive, immersiveCanvas, onSectionNa
     hydrate();
   }, [preview, flags.lighting, hydrate]);
   useTopicCallback('lighting', !preview && flags.lighting, hydrate);
+  const { pick: quickPick, failed: pickFailed, cancel: cancelQuickPick } = useLightingQuickPick(paused, hydrate);
+  const immersiveOpen = usePanelImmersiveOpen();
+  useEffect(() => { if (immersiveOpen) cancelQuickPick(); }, [immersiveOpen, cancelQuickPick]);
 
   // Leaving animate (a mode change from this surface or an external broadcast)
   // dismisses the immersive fullscreen shader.
@@ -317,12 +322,13 @@ export function LightingWidget({ widget, immersive, immersiveCanvas, onSectionNa
     publishControlSync({ domain: 'lighting', mode: nextMode, rawSync, ...extra });
   }, []);
 
-  const applyEffect = useCallback(async (effectKey: string, state?: EffectState, templateIndex?: number) => {
+  const applyEffect = useCallback(async (effectKey: string, state?: EffectState, templateIndex?: number, current: () => boolean = () => true) => {
+    ++hydrateSeqRef.current;
     const next = state ?? resolveEffectState(effectKey, allTemplates);
     setActiveEffect(effectKey);
     animateEffectRef.current = effectKey;
     setMode('animate');
-    await startAnimate(
+    const result = await startAnimate(
       effectKey,
       next.speed,
       next.intensity,
@@ -334,22 +340,25 @@ export function LightingWidget({ widget, immersive, immersiveCanvas, onSectionNa
       true,
       next.sensors,
     );
+    if (!current() || !lightingPickAccepted(result)) return false;
     publishLighting('animate', effectKey, { effect: effectKey, templateIndex, effectState: next });
+    return true;
   }, [publishLighting, allTemplates]);
 
   // A recents tile: the effect at the preset it shows. The preset becomes the effect's selected one, as picking it on the page does.
-  const applyRecentAnimation = useCallback(async (effectKey: string, slot: number) => {
+  const applyRecentAnimation = useCallback(async (effectKey: string, slot: number, current: () => boolean) => {
     const bundle = allTemplates[effectKey];
     const picked = bundle?.slots[Math.min(Math.max(slot, 0), bundle.slots.length - 1)];
     // Before hydrate there is no preset to run, so the current one runs and no preset index is claimed.
-    await applyEffect(effectKey, picked ? resolveEffectState(effectKey, allTemplates, picked) : undefined, picked ? slot : undefined);
-    if (!bundle || bundle.selected === slot) return;
+    if (!await applyEffect(effectKey, picked ? resolveEffectState(effectKey, allTemplates, picked) : undefined, picked ? slot : undefined, current)) return false;
+    if (!bundle || bundle.selected === slot) return true;
     // Read after the await: the start's broadcast may have re-hydrated, and the save replaces the whole dict.
     const latest = latestRef.current;
     const next: Record<string, EffectTemplateBundle> = { ...latest.templates };
     for (const [k, v] of Object.entries(latest.stored.server)) if (isCustomEffectKey(k)) next[k] = v;
     next[effectKey] = { ...(next[effectKey] ?? bundle), selected: slot };
     try { await saveAnimateTemplates(next); } catch { /* the tile still ran; the next hydrate shows what persisted */ }
+    return true;
   }, [allTemplates, applyEffect]);
 
   const applyStatic = useCallback(async (effectKey: string, state?: EffectState) => {
@@ -370,13 +379,16 @@ export function LightingWidget({ widget, immersive, immersiveCanvas, onSectionNa
     publishLighting('static', 'static', { effect: effectKey, effectState: next });
   }, [publishLighting, templates]);
 
-  const applyColor = useCallback(async (hex: string) => {
+  const applyColor = useCallback(async (hex: string, current: () => boolean) => {
+    ++hydrateSeqRef.current;
     setActiveColor(hex.toLowerCase());
     setActiveEffect(DEFAULT_STATIC_EFFECT);
     staticEffectRef.current = DEFAULT_STATIC_EFFECT;
     setMode('static');
-    await startStatic(DEFAULT_STATIC_EFFECT, 1, 0, 0, 1, 1, {}, true, hex);
+    const result = await startStatic(DEFAULT_STATIC_EFFECT, 1, 0, 0, 1, 1, {}, true, hex);
+    if (!current() || !lightingPickAccepted(result)) return false;
     publishLighting('static', 'static', { effect: DEFAULT_STATIC_EFFECT });
+    return true;
   }, [publishLighting]);
 
   const applyMirror = useCallback(async () => {
@@ -426,12 +438,14 @@ export function LightingWidget({ widget, immersive, immersiveCanvas, onSectionNa
 
   // Mode-button dispatch (widget row + immersive grid) - covers every mode.
   const handleMode = useCallback((k: LightingMode) => {
+    cancelQuickPick();
+    ++hydrateSeqRef.current;
     if (k === 'none') onOffButton();
     else if (k === 'animate') onAnimateButton();
     else if (k === 'static') onStaticButton();
     else if (k === 'gif') onMediaButton();
     else if (k === 'screen') onMirrorButton();
-  }, [onOffButton, onAnimateButton, onStaticButton, onMediaButton, onMirrorButton]);
+  }, [cancelQuickPick, onOffButton, onAnimateButton, onStaticButton, onMediaButton, onMirrorButton]);
 
   // The arrows step through the mode list, the way the cooling widget's step
   // through its presets. What plays inside a mode - the effect, the media item,
@@ -615,9 +629,10 @@ export function LightingWidget({ widget, immersive, immersiveCanvas, onSectionNa
         showRecents={showRecents}
         recentColors={recents.colors}
         recentAnimations={recents.animations}
-        onColor={hex => { void applyColor(hex); }}
-        onEffect={(key, slot) => { void applyRecentAnimation(key, slot); }}
-        onOpen={openAction}
+        onColor={hex => quickPick(current => applyColor(hex, current))}
+        onEffect={(key, slot) => quickPick(current => applyRecentAnimation(key, slot, current))}
+        onOpen={openAction ? () => { cancelQuickPick(); openAction(); } : null}
+        failed={pickFailed}
       />
     )
     : undefined;

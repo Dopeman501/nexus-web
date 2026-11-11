@@ -1,0 +1,77 @@
+@use '../../../styles/text' as *;
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  container-type: inline-size;
+}
+
+.master {
+  @include text-heading;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  align-self: center;
+  min-height: 44px;
+  width: 80%;
+  max-width: 260px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 14px;
+  background: #000;
+  color: var(--panel-accent);
+  font-size: clamp(12px, 4.5cqi, 22px);
+  font-weight: 750;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+  svg { flex-shrink: 0; width: 1.5em; height: 1.5em; }
+  &[data-on='true'] { background: var(--panel-accent); color: var(--panel-accent-text, var(--accent-text)); }
+  &:disabled { cursor: default; opacity: 0.5; }
+  &:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+}
+
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 24px; }
+.status { @include text-caption; color: var(--text-dim); }
+.expand { display: grid; place-items: center; border: 0; background: transparent; color: var(--text-dim); padding: 5px; border-radius: 8px; cursor: pointer; }
+.error {
+  @include text-caption;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  button { border: 0; border-radius: 7px; padding: 5px 10px; background: var(--panel-control-translucent); color: var(--panel-accent); cursor: pointer; }
+}
+
+.immersive {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  padding: 28px clamp(18px, 5vw, 58px);
+  box-sizing: border-box;
+  color: var(--text);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.header { display: flex; align-items: center; gap: 14px; color: var(--panel-accent); h1 { @include text-heading; margin: 0; } }
+.universal { display: flex; flex-direction: column; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.deviceList { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); align-items: start; gap: 16px; }
+.device { display: flex; flex-direction: column; gap: 14px; padding: 18px; border-radius: 20px; background: var(--panel-control-translucent); min-width: 0; }
+.rowHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; strong { @include text-body; font-weight: 650; overflow-wrap: anywhere; } }
+.deviceName { display: flex; flex-direction: column; gap: 3px; min-width: 0; span { @include text-caption; color: var(--text-dim); } }
+
+@media (max-width: 480px) { .immersive { padding-top: 22px; gap: 16px; } .device { padding: 15px; } }

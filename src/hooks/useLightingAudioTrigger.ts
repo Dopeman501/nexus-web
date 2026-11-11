@@ -89,7 +89,8 @@ export function useLightingAudioTrigger(active: boolean, profileId?: string) {
         error: value === null ? 'save' : null });
       if (owner.deferred) { owner.deferred = false; load(); }
     };
-    void setLightingAudioTrigger(next, owner.abort.signal).then(finish, () => finish(null));
+    const controls = (['enabled', 'intensity'] as const).filter(field => patch[field] !== undefined);
+    void setLightingAudioTrigger(next, owner.abort.signal, controls).then(finish, () => finish(null));
   }, [active, key, current, load, publish]);
 
   // A newly selected profile never paints its predecessor while its effect is being replaced.

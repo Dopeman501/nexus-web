@@ -13,6 +13,7 @@ import { PICKER_FIELD_SVG, PICKER_SEGMENTED_SVG, pickerHexAt, pickerPointFor, sn
 import { useColorWriteQueue } from './page/useColorWriteQueue';
 import { useGlobalColor } from './page/useGlobalColor';
 import { useLightingRecents } from './useLightingRecents';
+import { customEffectDef, isCustomEffectKey, refreshCustomEffects, useCustomEffects } from '../../../api/customEffects';
 import { usePins } from './page/usePins';
 import { visibleCards } from './page/zoneUtils';
 import { EffectCard } from '../../../components/common/EffectCard/EffectCard';
@@ -46,6 +47,7 @@ import {
   defaultStateFor,
   isStaticEffect,
   type EffectState,
+  type EffectDef,
   type EffectTemplateBundle,
   type LightingMode,
 } from '../../../types/lighting';
@@ -197,7 +199,8 @@ function renderImmersiveEditor(
             // a second selection beside the picker tile.
             effect={isStatic ? (animate.staticPattern?.key ?? '') : animate.effect}
             onSelect={animate.onSelectEffect}
-            effects={isStatic ? STATIC_PATTERN_EFFECTS : ANIMATE_EFFECTS}
+            effects={isStatic ? STATIC_PATTERN_EFFECTS : animate.effects}
+            labelFor={animate.labelFor}
             frozen={isStatic}
             slotFor={animate.slotFor}
             versionFor={animate.versionFor}
@@ -210,6 +213,7 @@ function renderImmersiveEditor(
         effect={scope === 'mirror' || scope === 'media' ? mirrorPostProcess : (
           <EffectControls
             effect={animate.effect}
+            customDef={animate.customDef}
             state={animate.state}
             bundle={animate.bundle}
             canReset={animate.canReset}
@@ -248,6 +252,9 @@ function renderImmersiveEditor(
 }
 
 interface ImmersiveAnimateController {
+  effects: EffectDef[];
+  labelFor: (key: string) => string | undefined;
+  customDef?: EffectDef;
   /** The effect the editor shows: the pinned target when the selection wears one, else the running one. */
   effect: string;
   /** The effect the global source is running. */
@@ -327,6 +334,8 @@ function useImmersiveAnimateState(): {
   selectionPick: (() => void) | undefined;
 } {
   const { t } = useTranslation();
+  const customs = useCustomEffects();
+  const customDefs = useMemo(() => customs.map(entry => customEffectDef(entry, t)), [customs, t]);
   const [active, setActive] = useState<string>('rainbow');
   const [templates, setTemplates] = useState<Record<string, EffectTemplateBundle>>({});
   const [mode, setMode] = useState<LightingMode>('none');
@@ -375,7 +384,9 @@ function useImmersiveAnimateState(): {
     return hex;
   }, [globalColor, pins, selectedIds]);
 
+  const hydrateSeq = useRef(0);
   const hydrate = useCallback(async () => {
+    const seq = ++hydrateSeq.current;
     const land = readGlobalColor();
     const [sync, settings, staticSettings, defaults] = await Promise.all([
       fetchCurrentSync(),
@@ -383,9 +394,14 @@ function useImmersiveAnimateState(): {
       fetchStaticSettings(),
       fetchAnimateDefaults(),
     ]);
+    if (seq !== hydrateSeq.current) return;
     const next: Record<string, EffectTemplateBundle> = {};
     for (const e of EFFECTS) {
       next[e.key] = mergeTemplates(e.key, settings?.templates?.[e.key], defaults);
+    }
+    // Template writes replace the whole dictionary, including Studio presets.
+    for (const key of Object.keys(settings?.templates ?? {})) {
+      if (isCustomEffectKey(key)) next[key] = mergeTemplates(key, settings?.templates?.[key], defaults);
     }
     setTemplates(next);
     land(staticSettings?.color ?? '');
@@ -398,15 +414,19 @@ function useImmersiveAnimateState(): {
       setActive(prev => isStaticEffect(prev)
         ? prev
         : (isStaticEffect(staticSettings?.effect ?? '') ? staticSettings!.effect : DEFAULT_STATIC_EFFECT));
-    } else if (EFFECTS.some(e => e.key === rawSync)) {
+    } else if (EFFECTS.some(e => e.key === rawSync) || isCustomEffectKey(rawSync)) {
       setActive(rawSync);
     } else if (settings?.effect) {
       setActive(settings.effect);
     }
   }, [readGlobalColor]);
 
-  useEffect(() => { hydrate(); }, [hydrate]);
-  useTopicCallback('lighting', true, hydrate);
+  useEffect(() => {
+    const seq = hydrateSeq;
+    void hydrate();
+    return () => { ++seq.current; };
+  }, [hydrate]);
+  useTopicCallback('lighting', true, () => { void hydrate(); void refreshCustomEffects(); });
 
   // Optimistic mode update on same-browser mode changes (e.g. tapping the Media
   // button in the LightingWidget above). The lighting topic arrives after the
@@ -421,7 +441,9 @@ function useImmersiveAnimateState(): {
     }
   }), []);
 
-  const bundle = templates[shown];
+  // A new/default Studio effect has no persisted delta yet. It still needs a
+  // full editor, including when it is reached through a selected device pin.
+  const bundle = useMemo(() => templates[shown] ?? (isCustomEffectKey(shown) ? mergeTemplates(shown, undefined, null) : undefined), [shown, templates]);
   const slotShown = pinnedSlot ?? bundle?.selected ?? 0;
   const baseState = bundle?.slots[slotShown] ?? defaultStateFor(shown);
 
@@ -471,6 +493,7 @@ function useImmersiveAnimateState(): {
   // devices selected pins them to it and leaves the running effect alone; with
   // none selected it is the global source.
   const onSelectEffect = useCallback((key: string) => {
+    ++hydrateSeq.current;
     const b = templates[key];
     const s = b?.slots[b.selected] ?? defaultStateFor(key);
     const slot = b?.selected ?? 0;
@@ -598,6 +621,9 @@ function useImmersiveAnimateState(): {
 
   const animate: ImmersiveAnimateController | null = ((mode === 'animate' || mode === 'static') && bundle)
     ? {
+      effects: [...ANIMATE_EFFECTS, ...customDefs],
+      labelFor: key => customs.find(entry => `custom:${entry.id}` === key)?.name,
+      customDef: customDefs.find(def => def.key === shown),
       effect: shown,
       runningEffect: active,
       deviceSelect,

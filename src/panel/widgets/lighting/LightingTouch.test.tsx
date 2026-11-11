@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { LightingTouch } from './LightingTouch';
 import { PanelDeviceIdProvider } from '../common/PanelDeviceIdContext';
 import type { LightingDevice } from '../../../types/lighting';
-import { fetchLightingDevices, fetchAnimateSettings, fetchCurrentSync, fetchPins, fetchStaticSettings, saveAnimateTemplates, setPins, startStatic, type Pin } from '../../../api/lighting';
+import { fetchLightingDevices, fetchAnimateSettings, fetchCurrentSync, fetchPins, fetchStaticSettings, saveAnimateTemplates, setPins, startAnimate, startStatic, type Pin } from '../../../api/lighting';
 import { defaultStateFor } from '../../../types/lighting';
 import { paletteColor } from '../../../types/lightingPalette';
 import type { PanelWidget } from '../types';
@@ -14,6 +14,12 @@ import type { PanelWidget } from '../types';
 // Static's picker rides in the widget's immersive canvas slot, so the stub has
 // to render what is handed to it or the subject disappears.
 const recorded = vi.hoisted(() => ({ recordColor: vi.fn(), recordAnimation: vi.fn() }));
+const customEffects = vi.hoisted(() => [] as { id: string; name: string; recipe: string; updatedAt: number; audio: boolean }[]);
+vi.mock('../../../api/customEffects', async importActual => ({
+  ...(await importActual<typeof import('../../../api/customEffects')>()),
+  useCustomEffects: () => customEffects,
+  refreshCustomEffects: () => Promise.resolve(),
+}));
 vi.mock('./useLightingRecents', () => ({ useLightingRecents: () => ({ colors: [], animations: [], ...recorded }) }));
 vi.mock('./LightingWidget', () => ({
   LightingWidget: ({ immersiveCanvas }: { immersiveCanvas?: React.ReactNode }) => <div>{immersiveCanvas}</div>,
@@ -287,6 +293,60 @@ describe('LightingTouch pins', () => {
     render(<LightingTouch widget={widget} />);
     await waitFor(() => expect(selectProps.current).not.toBeNull());
     expect(localStorage.getItem('nexus.lighting.selectedDevices')).toBeNull();
+  });
+});
+
+describe('LightingTouch custom styles', () => {
+  beforeEach(() => {
+    controlsProps.current = null;
+    gridProps.current = null;
+    selectProps.current = null;
+    customEffects.push({ id: 'lasers', name: 'Lasers', recipe: '{}', updatedAt: 1, audio: false });
+    vi.mocked(fetchCurrentSync).mockResolvedValue({ sync: 'custom:lasers' });
+    vi.mocked(fetchAnimateSettings).mockResolvedValue({ effect: 'custom:lasers', states: {}, templates: {
+      'custom:lasers': { selected: 2, slots: [0, 1, 2, 3].map(i => ({ ...defaultStateFor('custom:lasers'), speed: 12 + i })) },
+      'custom:other': { selected: 1, slots: [0, 1, 2, 3].map(() => defaultStateFor('custom:other')) },
+    } });
+    vi.mocked(fetchPins).mockResolvedValue({});
+    vi.mocked(startAnimate).mockClear();
+    vi.mocked(saveAnimateTemplates).mockClear();
+  });
+
+  afterEach(() => {
+    customEffects.length = 0;
+    vi.mocked(fetchCurrentSync).mockResolvedValue({ sync: 'static' });
+    vi.mocked(fetchAnimateSettings).mockResolvedValue({ effect: 'rainbow', states: {}, templates: {} });
+    vi.mocked(fetchPins).mockResolvedValue({});
+  });
+
+  it('keeps the style browser and custom controls visible for the running Studio effect', async () => {
+    render(<LightingTouch widget={widget} />);
+    await waitFor(() => expect(controlsProps.current?.effect).toBe('custom:lasers'));
+    expect(screen.getByTestId('editor')).toBeInTheDocument();
+    expect(gridProps.current?.effects).toEqual(expect.arrayContaining([expect.objectContaining({ key: 'custom:lasers' })]));
+    expect(controlsProps.current?.customDef).toMatchObject({ key: 'custom:lasers' });
+    expect(controlsProps.current?.bundle).toMatchObject({ selected: 2 });
+    expect(controlsProps.current?.state).toMatchObject({ speed: 14 });
+  });
+
+  it('preserves other custom bundles when changing a preset', async () => {
+    render(<LightingTouch widget={widget} />);
+    await waitFor(() => expect(controlsProps.current?.effect).toBe('custom:lasers'));
+    act(() => { (controlsProps.current!.onTemplateSelect as (slot: number) => void)(3); });
+    await waitFor(() => expect(saveAnimateTemplates).toHaveBeenCalled());
+    expect(vi.mocked(saveAnimateTemplates).mock.calls.at(-1)![0]).toMatchObject({
+      'custom:lasers': { selected: 3 }, 'custom:other': { selected: 1 },
+    });
+  });
+
+  it('keeps the editor for a custom pin without stored custom presets', async () => {
+    vi.mocked(fetchCurrentSync).mockResolvedValue({ sync: 'rainbow' });
+    vi.mocked(fetchAnimateSettings).mockResolvedValue({ effect: 'rainbow', states: {}, templates: {} });
+    vi.mocked(fetchPins).mockResolvedValue({ a: { kind: 'animate', effect: 'custom:lasers' } });
+    render(<LightingTouch widget={widget} />);
+    await select(['a']);
+    await waitFor(() => expect(controlsProps.current?.effect).toBe('custom:lasers'));
+    expect(screen.getByTestId('editor')).toBeInTheDocument();
   });
 });
 

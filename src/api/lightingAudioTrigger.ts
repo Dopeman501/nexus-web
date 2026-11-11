@@ -15,6 +15,7 @@ export interface LightingAudioTriggerSettings {
   switchDelay: number;
   shuffle: boolean;
   looks: LightingAudioTriggerLook[];
+  deviceOverrides?: Record<string, { enabled?: boolean; intensity?: number }>;
 }
 
 export const LIGHTING_AUDIO_TRIGGER_MAX_LOOKS = 32;
@@ -55,8 +56,17 @@ function normalizeLook(value: unknown): LightingAudioTriggerLook[] {
 /** Validate host/imported data before it reaches controls, previews or subsequent writes. */
 export function normalizeLightingAudioTrigger(value: unknown): LightingAudioTriggerSettings {
   const raw = object(value) ? value : {};
+  const deviceOverrides = object(raw.deviceOverrides) ? Object.fromEntries(Object.entries(raw.deviceOverrides).slice(0, 512)
+    .filter(([id, entry]) => id.length > 0 && id.length <= 512 && !Array.from(id).some(char => char.charCodeAt(0) < 32) && object(entry))
+    .map(([id, entry]) => {
+      const item = entry as Record<string, unknown>;
+      return [id, { ...(typeof item.enabled === 'boolean' ? { enabled: item.enabled } : {}),
+        ...(typeof item.intensity === 'number' && Number.isFinite(item.intensity) && item.intensity >= 0 && item.intensity <= 100
+          ? { intensity: item.intensity } : {}) }];
+    })) : undefined;
   return { enabled: raw.enabled === true, intensity: number(raw.intensity, 50, 0, 100),
     switchDelay: number(raw.switchDelay, 1, 0, 10), shuffle: raw.shuffle === true,
+    ...(deviceOverrides ? { deviceOverrides } : {}),
     looks: Array.isArray(raw.looks) ? raw.looks.slice(0, 256).flatMap(normalizeLook).slice(0, LIGHTING_AUDIO_TRIGGER_MAX_LOOKS) : [] };
 }
 
@@ -87,6 +97,8 @@ export function fetchLightingAudioTrigger(signal?: AbortSignal): Promise<Lightin
   return request(abort => fetchService<unknown>(PATH, abort), signal);
 }
 
-export function setLightingAudioTrigger(value: LightingAudioTriggerSettings, signal?: AbortSignal): Promise<LightingAudioTriggerSettings | null> {
-  return request(abort => postService<unknown>(PATH, normalizeLightingAudioTrigger(value), abort), signal);
+export function setLightingAudioTrigger(value: LightingAudioTriggerSettings, signal?: AbortSignal,
+  controls?: readonly ('enabled' | 'intensity')[]): Promise<LightingAudioTriggerSettings | null> {
+  const path = controls === undefined ? PATH : `${PATH}?controls=${controls.join(',')}`;
+  return request(abort => postService<unknown>(path, normalizeLightingAudioTrigger(value), abort), signal);
 }

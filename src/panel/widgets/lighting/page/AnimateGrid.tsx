@@ -96,7 +96,7 @@ function AnimateGridCell({ fx, slot, version, active, live, panel, pinnedNames, 
  * hardware gets a bulb. Effects are listed in pre-expanded category groups
  * (EFFECT_CATEGORIES order), each under a header in the cooling-panel style.
  */
-export function AnimateGrid({ effect, onSelect, effects = EFFECTS, query = '', slotFor, versionFor, rgbActiveEffect, panelEffects, pinnedDevices, gpuAvailable, frozen, leading, leadingMatches, onEdit, editEnabled, editorOpen }: {
+export function AnimateGrid({ effect, onSelect, effects = EFFECTS, query = '', labelFor, slotFor, versionFor, rgbActiveEffect, panelEffects, pinnedDevices, gpuAvailable, frozen, leading, leadingMatches, onEdit, editEnabled, editorOpen }: {
   effect: string;
   onSelect: (key: string) => void;
   /** Toggles the effect editor (opens it, or closes it when `editorOpen`). Pass a stable callback so the tiles keep one element type. */
@@ -117,6 +117,8 @@ export function AnimateGrid({ effect, onSelect, effects = EFFECTS, query = '', s
   effects?: EffectDef[];
   /** Search text; matches an effect's name or category. */
   query?: string;
+  /** Saved Studio names are user text, rather than translation keys. */
+  labelFor?: (key: string) => string | undefined;
   /** Preset slot to show per effect (this device's selection). Defaults to 0. */
   slotFor?: (key: string) => number;
   /** Content hash of that slot, for cache-busting. Defaults to '0'. */
@@ -162,10 +164,10 @@ export function AnimateGrid({ effect, onSelect, effects = EFFECTS, query = '', s
       .map(cat => ({
         cat,
         items: effects.filter(fx => categoryOf(fx.key) === cat
-          && matchesAllWords(query, [t(fx.labelKey), t(`lighting.category.${cat}`)])),
+          && matchesAllWords(query, [labelFor?.(fx.key) ?? t(fx.labelKey), t(`lighting.category.${cat}`)])),
       }))
       .filter(g => g.items.length > 0),
-    [effects, query, t],
+    [effects, query, labelFor, t],
   );
 
   const searching = query.trim() !== '';
@@ -191,7 +193,7 @@ export function AnimateGrid({ effect, onSelect, effects = EFFECTS, query = '', s
               live={!!rgbActiveEffect && fx.key === rgbActiveEffect}
               panel={!!panelEffects && panelEffects.has(fx.key)}
               pinnedNames={pinnedDevices?.get(fx.key)}
-              label={t(fx.labelKey)}
+              label={labelFor?.(fx.key) ?? t(fx.labelKey)}
               hideLabel={g.cat === 'simple'}
               gpuAvailable={gpuAvailable}
               frozen={frozen}

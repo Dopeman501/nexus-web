@@ -10,6 +10,22 @@ beforeEach(() => vi.resetAllMocks());
 afterEach(() => vi.useRealTimers());
 
 describe('lighting Audio Trigger contract', () => {
+  it('marks shared control ownership so a look-only editor cannot restore stale widget controls', async () => {
+    vi.mocked(postService).mockResolvedValue(DEFAULT_LIGHTING_AUDIO_TRIGGER);
+    await setLightingAudioTrigger(DEFAULT_LIGHTING_AUDIO_TRIGGER, undefined, []);
+    expect(postService).toHaveBeenLastCalledWith('/lighting/audio-trigger?controls=', DEFAULT_LIGHTING_AUDIO_TRIGGER, expect.any(AbortSignal));
+    await setLightingAudioTrigger(DEFAULT_LIGHTING_AUDIO_TRIGGER, undefined, ['enabled']);
+    expect(postService).toHaveBeenLastCalledWith('/lighting/audio-trigger?controls=enabled', DEFAULT_LIGHTING_AUDIO_TRIGGER, expect.any(AbortSignal));
+  });
+  it('preserves bounded individual device controls through unrelated menu look edits', () => {
+    const raw = { deviceOverrides: { keyboard: { enabled: false, intensity: 25 }, fan: { enabled: true },
+      inherit: { enabled: null, intensity: null }, invalid: { intensity: Infinity } } };
+    const value = normalizeLightingAudioTrigger(raw);
+    expect(value.deviceOverrides).toEqual({ keyboard: { enabled: false, intensity: 25 }, fan: { enabled: true }, inherit: {}, invalid: {} });
+    expect(value.deviceOverrides).not.toBe(raw.deviceOverrides);
+    expect(normalizeLightingAudioTrigger({ ...value, looks: [{ mode: 'static', color: '#112233' }] }).deviceOverrides)
+      .toEqual(value.deviceOverrides);
+  });
   it('defaults old/missing values to a fresh disabled configuration', () => {
     const first = normalizeLightingAudioTrigger(undefined);
     expect(first).toEqual({ enabled: false, intensity: 50, switchDelay: 1, shuffle: false, looks: [] });

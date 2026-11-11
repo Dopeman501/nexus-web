@@ -53,7 +53,7 @@ describe('lighting Audio Trigger owner', () => {
       result.current.change({ intensity: 80 });
       result.current.change({ enabled: true });
     });
-    expect(setLightingAudioTrigger).toHaveBeenCalledExactlyOnceWith(settings({ intensity: 80 }), expect.any(AbortSignal));
+    expect(setLightingAudioTrigger).toHaveBeenCalledExactlyOnceWith(settings({ intensity: 80 }), expect.any(AbortSignal), ['intensity']);
     expect(result.current.saving).toBe(true);
     expect(result.current.value.intensity).toBe(80);
     await act(async () => write.resolve(settings({ intensity: 75 })));

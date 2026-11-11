@@ -36,6 +36,7 @@ import { weatherApp } from './weather';
 import { stocksApp } from './stocks';
 import { screentimeApp } from './screentime';
 import { lightingApp } from './lighting';
+import { audioTriggerApp } from './audio-trigger';
 import { smartLightsApp } from './smart-lights';
 import { obsApp } from './obs';
 import { steamApp } from './steam';
@@ -74,6 +75,7 @@ export const APP_REGISTRY: Record<string, AppManifest> = {
   stocks:     stocksApp,
   screentime: screentimeApp,
   lighting:   lightingApp,
+  'audio-trigger': audioTriggerApp,
   'smart-lights': smartLightsApp,
   'home-assistant': homeAssistantApp,
   obs:        obsApp,
