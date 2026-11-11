@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Eye, Unplug } from 'lucide-react';
 import { useUnifiedDevices, controlGateIsPanel, claimsKey, type UnifiedDevice } from '../../../hooks/useUnifiedDevices';
 import { ViewHeader } from '../../common/ViewHeader/ViewHeader';
@@ -47,6 +47,7 @@ import { useTranslation } from '../../../lib/i18n';
 import type { ConnectionState } from '../../../hooks/useServiceStatus';
 import { DeviceDetectingContext, useReportDeviceWaiting } from './deviceDetecting';
 import { JUNGLE_LEOPARD_D215_FAMILY } from '../../../panel/types';
+import { D215RecoveryActions } from './D215RecoveryActions';
 import styles from './DevicePage.module.scss';
 
 /**
@@ -336,12 +337,15 @@ function DeviceBody({ device, controlDevice, platform, onOpenFirmware, onSection
   }
 
   return <PanelNotConnected name={device.shortName} deviceKey={device.key} warning={device.warning}
+    recovery={device.curatedId === JUNGLE_LEOPARD_D215_FAMILY
+      ? <D215RecoveryActions key={device.key} controlDevice={controlDevice} /> : undefined}
     connectionIssue={device.curatedId === JUNGLE_LEOPARD_D215_FAMILY ? device.warning : undefined} />;
 }
 
 /** A screen whose page is its panel (a cooler LCD, a Q-series), before that panel connects. */
-function PanelNotConnected({ name, deviceKey, warning, connectionIssue }: {
+function PanelNotConnected({ name, deviceKey, warning, connectionIssue, recovery }: {
   name: string; deviceKey: string; warning?: string; connectionIssue?: string;
+  recovery?: ReactNode;
 }) {
   const { t } = useTranslation();
   // Access denied is a settled state with its own notice, so it never holds the detecting screen.
@@ -357,7 +361,7 @@ function PanelNotConnected({ name, deviceKey, warning, connectionIssue }: {
     <div className={styles.page}>
       <ViewHeader title={name} />
       <div className={`${styles.pageBody} pageBody`}>
-        <EmptyState icon={<Unplug size={40} />} title={connectionIssue ?? t('devices.page.notConnected')} />
+        <EmptyState icon={<Unplug size={40} />} title={connectionIssue ?? t('devices.page.notConnected')} action={recovery} />
       </div>
     </div>
   );

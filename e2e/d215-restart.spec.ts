@@ -6,7 +6,12 @@ import type { D215RestartResult } from '../src/api/d215Restart';
 
 test.use({ colorScheme: 'dark' });
 
-interface MockService { record: PanelDeviceRecord; writes: unknown[]; restarts: number }
+interface MockService {
+  record: PanelDeviceRecord; writes: unknown[]; restarts: number;
+  connectionFailed?: boolean;
+  controls?: unknown[];
+  controlReply?: () => Promise<boolean>;
+}
 
 function seed(): MockService {
   return { writes: [], restarts: 0, record: {
@@ -24,6 +29,9 @@ function seed(): MockService {
 /** All HTTP/WebSocket requests remain intercepted, including frame/asset loads. */
 async function mockService(page: Page, state: MockService, reply: () => Promise<D215RestartResult>) {
   const root = resolve(process.env.D215_DIST ?? 'dist');
+  const devices = () => [{ id: 'jungle-leopard-d215', name: state.record.displayName, category: 'display',
+    connected: true, nexusControlEnabled: true, supportsNexusControl: true,
+    warning: state.connectionFailed ? 'The display connection failed. Reconnect it or retry Nexus Control.' : undefined }];
   await page.addInitScript(() => {
     localStorage.setItem('nexus_token', 'test-token');
     localStorage.setItem('nexus_settings', JSON.stringify({
@@ -51,8 +59,14 @@ async function mockService(page: Page, state: MockService, reply: () => Promise<
     if (path === '/profiles') return json({ profiles: [{ id: 'default', name: 'Default' }], activeId: 'default' });
     if (path === '/defaults') return json({ panel: { layouts: {} } });
     if (path === '/apps-api/installed') return json({ apps: [] });
-    if (path === '/devices/all') return json([{ id: 'jungle-leopard-d215', name: state.record.displayName, category: 'display',
-      connected: true, nexusControlEnabled: true, supportsNexusControl: true }]);
+    if (path === '/devices/all') return json(devices());
+    if (path === '/devices/control' && request.method() === 'POST') {
+      const body = request.postDataJSON();
+      expect(body).toEqual({ id: 'jungle-leopard-d215', enabled: true });
+      state.controls?.push(body);
+      if (state.controlReply && !await state.controlReply()) return route.fulfill({ status: 503, body: '' });
+      return json(devices());
+    }
     if (path === '/panel/devices') return json({ devices: [state.record] });
     if (path.endsWith('/background-media/library')) return json({ items: [] });
     // An unavailable readback must not disable the explicit recovery action.
@@ -125,4 +139,62 @@ test('D215 Settings reports unavailable and uncertain outcomes without automatic
   await expect(page.getByRole('status').filter({ hasText: 'Restart could not be confirmed. Wait for the screen to reconnect before trying again.' })).toBeVisible();
   expect(state.restarts).toBe(2);
   expect(state.writes).toEqual([]);
+});
+
+for (const viewport of [{ width: 1600, height: 900 }, { width: 800, height: 650 }]) {
+  test(`D215 failed connection exposes both recovery actions at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport);
+    const state = seed();
+    state.connectionFailed = true; state.record.streamed = false; state.controls = [];
+    const before = JSON.stringify(state.record);
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    let finishControl!: (accepted: boolean) => void;
+    state.controlReply = () => new Promise<boolean>(resolve => { finishControl = resolve; });
+    let finishScreen!: (result: D215RestartResult) => void;
+    await mockService(page, state, () => new Promise<D215RestartResult>(resolve => { finishScreen = resolve; }));
+    await page.goto('/');
+    await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: /Jungle Leopard D215/ }).first().click();
+    const soft = page.getByRole('button', { name: 'Restart Nexus Control', exact: true });
+    const hard = page.getByRole('button', { name: 'Restart screen', exact: true });
+    const group = page.getByRole('group', { name: 'Display recovery', exact: true });
+    await expect(soft).toBeEnabled(); await expect(hard).toBeEnabled();
+    expect(state.controls).toEqual([]); expect(state.restarts).toBe(0);
+    const bounds = await group.boundingBox();
+    expect(bounds).not.toBeNull(); expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: testInfo.outputPath('connection-failed-recovery.png') });
+    await soft.click();
+    const controlBusy = page.getByRole('button', { name: 'Restarting Nexus Control…', exact: true });
+    await expect(controlBusy).toBeDisabled(); await expect(hard).toBeDisabled();
+    await controlBusy.evaluate((element: HTMLButtonElement) => element.click());
+    await expect.poll(() => state.controls?.length).toBe(1);
+    finishControl(true);
+    await expect(page.getByText('Nexus Control is restarting. Wait for the display to reconnect.', { exact: true })).toBeVisible();
+    await expect(soft).toBeEnabled();
+    await hard.click();
+    await expect(soft).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Restarting…', exact: true })).toBeDisabled();
+    await expect.poll(() => state.restarts).toBe(1);
+    finishScreen({ status: 'restarted' });
+    await expect(page.getByText('The screen restarted and reconnected. Check the display.', { exact: true })).toBeVisible();
+    await expect(hard).toBeEnabled();
+    expect(state.controls).toEqual([{ id: 'jungle-leopard-d215', enabled: true }]);
+    expect(state.restarts).toBe(1); expect(state.writes).toEqual([]);
+    expect(JSON.stringify(state.record)).toBe(before); expect(errors).toEqual([]);
+  });
+}
+
+test('D215 failed connection reports control refusal and uncertain hard restart without retries', async ({ page }) => {
+  const state = seed();
+  state.connectionFailed = true; state.record.streamed = false; state.controls = [];
+  state.controlReply = async () => false;
+  await mockService(page, state, async () => ({ status: 'uncertain' }));
+  await page.goto('/');
+  await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: /Jungle Leopard D215/ }).first().click();
+  await page.getByRole('button', { name: 'Restart Nexus Control', exact: true }).click();
+  await expect(page.getByText('Nexus Control restart could not be confirmed. Check the connection and try again.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Restart screen', exact: true }).click();
+  await expect(page.getByText('Restart could not be confirmed. Wait for the screen to reconnect before trying again.', { exact: true })).toBeVisible();
+  expect(state.controls).toHaveLength(1); expect(state.restarts).toBe(1); expect(state.writes).toEqual([]);
 });
