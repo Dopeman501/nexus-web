@@ -33,4 +33,24 @@ node node_modules/@playwright/test/cli.js test -c e2e/audioBeatTransitions.confi
 
 The beat configuration now runs the same video setup, including its MP4 round-trip input. Every browser fixture intercepts its HTTP/socket requests and reads compiled files directly; it starts no Nexus listener. Run GPU suites sequentially. Windows process restrictions can prevent Edge startup independently of a product failure.
 
+## Y70 Home and page reordering
+
+The Y70 production-route suites reuse the isolated router above. They require the lockfile dependencies (`npm ci`) and an existing Microsoft Edge installation; native touch input is delivered through CDP. Neither configuration runs video setup or needs FFmpeg/FFprobe.
+
+Build the **service** dashboard, then pin that compiled tree explicitly. The generic `npm run build` selects the website target instead. Run from `nexus-web`:
+
+```powershell
+npm run build:service
+$env:Y70_HOME_ASSET_ROOT = (Resolve-Path -LiteralPath dist).Path
+$env:Y70_HOME_EXPECTED_INDEX_SHA256 = (Get-FileHash -LiteralPath (Join-Path $env:Y70_HOME_ASSET_ROOT 'index.html') -Algorithm SHA256).Hash.ToLowerInvariant()
+$env:Y70_HOME_RUN = 'home-local'
+$env:Y70_REORDER_RUN = 'pages-local'
+node node_modules/@playwright/test/cli.js test -c e2e/y70Home.config.ts
+node node_modules/@playwright/test/cli.js test -c e2e/y70PageReorder.config.ts
+```
+
+Use distinct run names to retain separate reports. Results and screenshots go under ignored `../builds/y70-home-20261114/`, with the Home run name or `reorder-` plus the reorder run name. Those artifacts are outputs, not clean-checkout prerequisites.
+
+All HTTP, WebSocket and simulator-iframe traffic is intercepted; `localhost:9400` is a virtual origin and no listener is started. Records, settings and save failures are synthetic. No running Nexus service, saved user data or hardware is needed or accessed. Selecting another compiled asset root still tests those files against mocks; it does not establish live-service or physical-display behavior.
+
 `../builds/` links in historical reports identify local, ignored verification artifacts; they are not repository prerequisites and are absent from a clean clone. The fixtures and setup here are the reproducible source.

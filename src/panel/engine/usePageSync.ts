@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PanelLayout } from '../types';
 import { BLANK_PAGE_ID } from './panelLayoutOps';
+import { resolveHomePage } from './homePage';
 
 // Owns the active page index and keeps it in sync with layout.activePageId so
 // the device-page preview, the on-device panel, and sibling tabs track the same
@@ -35,11 +36,30 @@ export function usePageSync(params: {
   const activePageIndexRef = useRef(activePageIndex);
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
 
+  const renderedPageIds = useMemo(() => {
+    const ids = shownPageIds ? [...shownPageIds] : paginatedLayout.pages.map(page => page.id);
+    if (blankPageIndex >= 0) ids.splice(blankPageIndex, 0, BLANK_PAGE_ID);
+    return ids;
+  }, [shownPageIds, paginatedLayout.pages, blankPageIndex]);
+  const previousPageIdsRef = useRef(renderedPageIds);
+  // Reordering changes an index without changing activePageId. Remap the page
+  // actually shown locally, independently of incoming-selection protection.
+  // The external-selection effect below still wins if both change together.
+  useLayoutEffect(() => {
+    if (pageDragging) return;
+    const previous = previousPageIdsRef.current;
+    previousPageIdsRef.current = renderedPageIds;
+    if (!loaded || (previous.length === renderedPageIds.length && previous.every((id, i) => id === renderedPageIds[i]))) return;
+    const id = previous[activePageIndex];
+    const next = renderedPageIds.indexOf(id);
+    if (next >= 0 && next !== activePageIndex) setActivePageIndex(next);
+  }, [loaded, pageDragging, renderedPageIds, activePageIndex]);
+
   // --- Current-page sync via layout.activePageId ---------------------------
   // The active page rides in the layout so the device-page preview, the
   // on-device panel, and sibling tabs track the same page (propagated by the
   // panel/device refetch path, same as widget moves). Page changes never
-  // survive a relaunch: a fresh panel start shows the first page.
+  // survive a relaunch: a fresh Y70 starts at Home, other surfaces at page one.
   //
   // Honoring an external page (effect below) and persisting a local page
   // (handlePageChange) are kept strictly apart. An earlier version reacted to
@@ -50,8 +70,11 @@ export function usePageSync(params: {
   // carries the new index explicitly, so no effect both reads the index and
   // writes the layout from it.
   const pageBootRef = useRef(false);
-  const lastSeenPageIdRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
+  // Track the incoming selection separately from local intent. A new callback
+  // or geometry render must not reinterpret the pre-save source as a remote
+  // navigation while the Home/startup write is still awaiting its echo.
+  const lastSourcePageIdRef = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
     if (!loaded || pageDragging) return;
     const pages = paginatedLayout.pages;
     if (pages.length === 0) return;
@@ -62,40 +85,43 @@ export function usePageSync(params: {
       : shownPageIds ? shownPageIds.indexOf(id) : pages.findIndex(p => p.id === id));
     if (!pageBootRef.current) {
       pageBootRef.current = true;
+      lastSourcePageIdRef.current = layout.activePageId;
       if (kioskBehavior && (pages.length > 1 || layout.activePageId === BLANK_PAGE_ID)) {
-        // Fresh panel start: show the first page and clear any page the last
-        // session left in the record.
-        lastSeenPageIdRef.current = pages[0].id;
-        if (activePageIndex !== 0) setActivePageIndex(0);
-        if (layout.activePageId !== pages[0].id) setLayout({ ...layout, activePageId: pages[0].id });
+        // Resolve only reachable real pages. Restricted mode may hide Home;
+        // that must not turn a stored index into a different page identity.
+        const homeId = resolveHomePage(paginatedLayout)?.id;
+        const homeIndex = homeId ? indexOf(homeId) : -1;
+        const startupId = homeIndex >= 0 ? homeId : shownPageIds?.[0] ?? pages[0].id;
+        const startupIndex = Math.max(0, startupId ? indexOf(startupId) : 0);
+        setActivePageIndex(startupIndex);
+        if (layout.activePageId !== startupId) setLayout({ ...layout, activePageId: startupId });
       } else {
         // Viewer (device-page preview / simulator) or single-page kiosk: adopt
         // whatever page the record already points at.
-        lastSeenPageIdRef.current = layout.activePageId;
         const idx = layout.activePageId ? indexOf(layout.activePageId) : 0;
-        if (idx > 0 && idx !== activePageIndex) setActivePageIndex(idx);
+        if (idx > 0) setActivePageIndex(idx);
       }
       return;
     }
     // Post-boot: honor a page change pushed from another client only. Skipped
     // during a drag so edge-advance owns the page.
     const target = layout.activePageId;
-    if (!target || target === lastSeenPageIdRef.current) return;
-    lastSeenPageIdRef.current = target;
+    if (!target || target === lastSourcePageIdRef.current) return;
     const idx = indexOf(target);
-    if (idx >= 0 && idx !== activePageIndex) setActivePageIndex(idx);
-  }, [loaded, kioskBehavior, paginatedLayout, layout, pageDragging, activePageIndex, setLayout, blankPageIndex, shownPageIds]);
+    if (idx < 0) return; // wait until a newly received page is rendered
+    lastSourcePageIdRef.current = target;
+    setActivePageIndex(idx);
+  }, [loaded, kioskBehavior, paginatedLayout, layout, pageDragging, setLayout, blankPageIndex, shownPageIds]);
 
   // Persist a user-driven page change (swipe) into the layout so other clients
   // follow. Carries the new index from the pager so it never reads a stale
-  // render value, and marks it seen so the honor effect won't echo it back.
+  // render value. Only the receiving effect updates the observed source ID.
   const handlePageChange = useCallback((idx: number) => {
     setActivePageIndex(idx);
     const pages = shownPageIds ? shownPageIds.map(id => ({ id })) : paginatedLayout.pages;
     if (pages.length <= 1 && blankPageIndex < 0) return;
     const id = idx === blankPageIndex ? BLANK_PAGE_ID : pages[Math.min(Math.max(idx, 0), pages.length - 1)]?.id;
     if (!id) return;
-    lastSeenPageIdRef.current = id;
     if (layout.activePageId !== id) setLayout({ ...layout, activePageId: id });
   }, [paginatedLayout, layout, setLayout, blankPageIndex, shownPageIds]);
 

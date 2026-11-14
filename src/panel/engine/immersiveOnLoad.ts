@@ -5,6 +5,7 @@
 import { isSingleWidgetSurface, surfaceSupportsTouch, type PanelLayout, type PanelSurface, type PanelWidget } from '../types';
 import { lookupApp } from '../widgets/registry';
 import { hasMarketplaceLoadedOnce, isMarketplaceType } from '../../widgets/marketplaceRegistry';
+import { resolveHomePage } from './homePage';
 
 /**
  * Whether widgets on this surface can be marked at all. Mirrors the gate
@@ -26,13 +27,13 @@ export function widgetSupportsImmersiveOnLoad(type: string, landscape: boolean):
 }
 
 /**
- * The widget to open immersive on load, or null. Only a first-page widget
+ * The widget to open immersive on load, or null. Only a Home-page widget
  * qualifies: a mark on a widget that has moved off the home page is inert.
  */
 export function resolveImmersiveOnLoadWidget(layout: PanelLayout): PanelWidget | null {
   const id = layout.immersiveOnLoadWidgetId;
   if (!id) return null;
-  return layout.pages[0]?.widgets.find(w => w.id === id) ?? null;
+  return resolveHomePage(layout)?.widgets.find(w => w.id === id) ?? null;
 }
 
 /** True when this widget is the one the layout opens immersive on load. */
@@ -41,7 +42,7 @@ export function isImmersiveOnLoadWidget(layout: PanelLayout, widgetId: string): 
 }
 
 /**
- * Whether this widget's edit options should offer the mark: a first-page widget
+ * Whether this widget's edit options should offer the mark: a Home-page widget
  * on a surface that has immersive, with an immersive view in the panel's current
  * orientation. Shared by the on-device sheet and the device page's pane so both
  * offer it on exactly the same widgets.
@@ -54,7 +55,7 @@ export function canMarkImmersiveOnLoad(
   deviceTouch?: boolean,
 ): boolean {
   if (!widget || !surfaceSupportsImmersiveOnLoad(surface, deviceTouch)) return false;
-  if (!layout.pages[0]?.widgets.some(w => w.id === widget.id)) return false;
+  if (!resolveHomePage(layout)?.widgets.some(w => w.id === widget.id)) return false;
   return widgetSupportsImmersiveOnLoad(widget.type, landscape);
 }
 
@@ -90,11 +91,11 @@ export function immersiveOnLoadTarget(params: {
 
 /**
  * Marks `widgetId` as the layout's immersive-on-load widget, replacing any
- * previous mark, or clears it with null. An id that names no first-page widget
+ * previous mark, or clears it with null. An id that names no Home-page widget
  * clears instead of being stored.
  */
 export function setImmersiveOnLoadWidgetId(layout: PanelLayout, widgetId: string | null): PanelLayout {
-  const next = widgetId && layout.pages[0]?.widgets.some(w => w.id === widgetId)
+  const next = widgetId && resolveHomePage(layout)?.widgets.some(w => w.id === widgetId)
     ? widgetId
     : undefined;
   if (next === layout.immersiveOnLoadWidgetId) return layout;

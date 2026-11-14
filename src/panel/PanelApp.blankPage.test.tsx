@@ -8,6 +8,10 @@ const fetchMock = vi.fn();
 const patchMock = vi.fn();
 const patchCapsMock = vi.fn();
 
+vi.mock('../hooks/useServiceStatus', () => ({
+  useServiceStatus: () => ({ state: 'online', ping: { initialized: true, platform: 'windows' }, retry: () => {} }),
+}));
+
 vi.mock('../api/panel', async importOriginal => ({
   ...await importOriginal<typeof import('../api/panel')>(),
   fetchPanelDeviceWithStatus: (...args: unknown[]) => fetchMock(...args),
@@ -62,7 +66,11 @@ function setViewport(width: number, height: number) {
 
 async function mountKiosk(stored: PanelLayout, restrictedMode = false) {
   fetchMock.mockResolvedValue({ found: true, record: recordWith(stored, restrictedMode) });
-  patchMock.mockResolvedValue({ ok: true, record: recordWith(stored) });
+  patchMock.mockImplementation(async (_id: string, patch: { layout?: PanelLayout }) => {
+    const record = recordWith(patch.layout ?? stored, restrictedMode);
+    fetchMock.mockResolvedValue({ found: true, record });
+    return { ok: true, record };
+  });
   render(
     <UiSettingsProvider serviceOnline={true} manageDom={false}>
       <PanelApp deviceId="y70-1" />
@@ -190,5 +198,59 @@ describe('PanelApp trailing blank page', () => {
     const pages = renderedPages();
     expect(pages).toHaveLength(3);
     expect(pages[2].getAttribute('aria-hidden')).toBe('false');
+  });
+});
+
+function backgroundTap(target: Element, at: number) {
+  for (const [type, timeStamp] of [['pointerdown', at], ['pointerup', at + 40]] as const) {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperties(event, {
+      pointerId: { value: 1 }, pointerType: { value: 'touch' }, isPrimary: { value: true },
+      button: { value: 0 }, clientX: { value: 500 }, clientY: { value: 2000 }, timeStamp: { value: timeStamp },
+    });
+    act(() => { target.dispatchEvent(event); });
+  }
+}
+
+describe('PanelApp Y70 Home integration', () => {
+  it('starts on the saved Home and returns there from the render-only blank page', async () => {
+    await mountKiosk({ ...layoutOf(2), homePageId: 'page-1', activePageId: 'page-0' });
+    expect(renderedPages()[1]).toHaveAttribute('aria-hidden', 'false');
+    act(() => swipeLeft(renderedPages()[1]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(renderedPages()[2]).toHaveAttribute('aria-hidden', 'false');
+    backgroundTap(renderedPages()[2], 2000);
+    expect(renderedPages()[2]).toHaveAttribute('aria-hidden', 'false');
+    backgroundTap(renderedPages()[2], 2150);
+    expect(renderedPages()[1]).toHaveAttribute('aria-hidden', 'false');
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    const last = writtenLayouts().at(-1)!;
+    expect(last.homePageId).toBe('page-1');
+    expect(last.activePageId).toBe('page-1');
+    expect(last.pages).toEqual(layoutOf(2).pages);
+  });
+
+  it('does not return Home for widget taps or while the background actions menu is open', async () => {
+    await mountKiosk({ ...layoutOf(2), homePageId: 'page-0' });
+    act(() => swipeLeft(renderedPages()[0]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    const widget = renderedPages()[1].querySelector('[data-panel-widget-id]')!;
+    backgroundTap(widget, 1000);
+    backgroundTap(widget, 1150);
+    expect(renderedPages()[1]).toHaveAttribute('aria-hidden', 'false');
+    fireEvent.contextMenu(renderedPages()[1]);
+    backgroundTap(renderedPages()[1], 2000);
+    backgroundTap(renderedPages()[1], 2150);
+    expect(renderedPages()[1]).toHaveAttribute('aria-hidden', 'false');
+  });
+
+  it('returns Home in Restricted mode without enabling editing', async () => {
+    await mountKiosk({ ...layoutOf(2), homePageId: 'page-0' }, true);
+    act(() => swipeLeft(renderedPages()[0]));
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    backgroundTap(renderedPages()[1], 1000);
+    backgroundTap(renderedPages()[1], 1150);
+    expect(renderedPages()[0]).toHaveAttribute('aria-hidden', 'false');
+    expect(screen.queryByRole('button', { name: 'panel.actions.addWidget' })).toBeNull();
   });
 });

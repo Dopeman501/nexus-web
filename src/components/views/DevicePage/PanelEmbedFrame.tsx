@@ -556,6 +556,7 @@ export function PanelEmbedFrame({
     <div
       ref={containerRef}
       className={styles.container}
+      data-panel-preview-frame
       data-surface={surface}
       style={{
         width: measured.w,

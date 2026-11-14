@@ -30,6 +30,10 @@
   transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+.track[data-order-changing][data-placed] {
+  transition: none;
+}
+
 .page {
   flex: 0 0 100%;
   width: 100%;

@@ -22,6 +22,19 @@ export function PanelPager<T extends { id: string }>({
   const pagerRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const safeIndex = Math.max(0, Math.min(pages.length - 1, activeIndex));
+  const orderKey = JSON.stringify(pages.map(page => page.id));
+  const [placedOrder, setPlacedOrder] = useState(orderKey);
+  const orderChanging = placedOrder !== orderKey;
+  useLayoutEffect(() => {
+    if (!orderChanging) return;
+    const frame = requestAnimationFrame(() => {
+      // Resolve the new, page-aligned position before re-enabling transitions.
+      // The same page must not fly past neighbours merely because it moved slots.
+      if (trackRef.current) void trackRef.current.offsetWidth;
+      setPlacedOrder(orderKey);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [orderChanging, orderKey]);
   const { offset, state, pageWidth } = usePanelHorizontalSwipe({
     enabled: swipeEnabled && pages.length > 1,
     pagerRef,
@@ -65,7 +78,7 @@ export function PanelPager<T extends { id: string }>({
 
   return (
     <div ref={pagerRef} className={`${styles.pager}${className ? ` ${className}` : ''}`}>
-      <div ref={trackRef} className={styles.track} data-state={state} data-placed={placed || undefined} style={trackStyle}>
+      <div ref={trackRef} className={styles.track} data-state={state} data-placed={placed || undefined} data-order-changing={orderChanging || undefined} style={trackStyle}>
         {pages.map((page, idx) => (
           <div
             key={page.id}

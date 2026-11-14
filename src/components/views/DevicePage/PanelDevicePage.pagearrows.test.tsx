@@ -13,6 +13,7 @@ const Y70_EDITOR_CAP = { gridCols: 4, pageRows: 16 };
 
 const fetchPanelDevicesMock = vi.fn();
 const patchPanelDeviceMock = vi.fn();
+const topicHandlers = new Map<string, (raw: unknown) => void>();
 
 vi.mock('../../../api/service', () => ({
   fetchService: vi.fn().mockResolvedValue(null),
@@ -30,6 +31,19 @@ vi.mock('../../../api/profiles', () => ({
   savePreferences: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('./PanelPresetToolbar', () => ({ PanelPresetToolbar: () => null }));
+vi.mock('./Y70PageReorder', () => ({
+  Y70PageReorder: (props: { children: React.ReactNode; enabled: boolean; pageId: string; layout: PanelLayout; ownerKey: string;
+    onBusyChange: (busy: boolean) => void; onCommit: (id: string, to: number, ids: string[]) => Promise<boolean> }) => (
+    <div data-testid="reorder" data-order={props.layout.pages.map(page => page.id).join(',')} data-owner={props.ownerKey}>
+      {props.children}
+      {props.enabled && <button data-testid="reorder-to-first" onClick={async () => {
+        props.onBusyChange(true);
+        try { await props.onCommit(props.pageId, 0, props.layout.pages.map(page => page.id)); }
+        finally { props.onBusyChange(false); }
+      }}>Move displayed page to first</button>}
+    </div>
+  ),
+}));
 vi.mock('../../../api/panel', () => ({
   fetchPanelDeviceWithStatus: vi.fn().mockResolvedValue({ found: false, status: 404 }),
   allocatePanelDevice: vi.fn().mockResolvedValue({ id: 'dev1' }),
@@ -38,7 +52,7 @@ vi.mock('../../../api/panel', () => ({
   patchPanelDevice: (...a: unknown[]) => patchPanelDeviceMock(...a),
 }));
 vi.mock('../../../hooks/useMultiplexSocket', () => ({
-  useTopicCallback: () => {},
+  useTopicCallback: (topic: string, enabled: boolean, handler: (raw: unknown) => void) => { if (enabled) topicHandlers.set(topic, handler); },
   useMultiplex: () => ({ connected: true }),
 }));
 vi.mock('../../../panel/engine/panelSync', () => ({
@@ -141,6 +155,7 @@ const DEVICE: PanelDevice = {
 } as PanelDevice;
 
 beforeEach(() => {
+  topicHandlers.clear();
   localStorage.setItem('nexus_simulated_panel_records', JSON.stringify({ y70: 'dev1' }));
   fetchPanelDevicesMock.mockReset();
   patchPanelDeviceMock.mockReset().mockResolvedValue({ ok: true });
@@ -154,6 +169,131 @@ afterEach(() => vi.restoreAllMocks());
 const prevDisabled = () => (screen.getByLabelText('devices.panels.prevPage') as HTMLButtonElement).disabled;
 const nextDisabled = () => (screen.getByLabelText('devices.panels.nextPage') as HTMLButtonElement).disabled;
 const embed = () => screen.getByTestId('embed');
+
+describe('Y70 Home control', () => {
+  it('orders a delayed Home save before subsequent navigation, keeping the newest page displayed', async () => {
+    await loadAndGoToLastPage();
+    let settle!: (value: object) => void;
+    patchPanelDeviceMock.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    const before = patchPanelDeviceMock.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'devices.panels.setHome' }));
+    fireEvent.click(screen.getByLabelText('devices.panels.prevPage'));
+    expect(embed().dataset.activePage).toBe('p2');
+    expect(patchPanelDeviceMock.mock.calls.length - before).toBe(1);
+    await act(async () => { settle({ ok: true }); });
+    const last = patchPanelDeviceMock.mock.calls.at(-1)?.[1].layout as PanelLayout;
+    expect(last.activePageId).toBe('p2');
+    expect(last.homePageId).toBe('p3');
+    expect(embed().dataset.activePage).toBe('p2');
+  });
+  it('sets the displayed real page as Home without changing the page order or current selection', async () => {
+    await loadAndGoToLastPage();
+    const before = patchPanelDeviceMock.mock.calls.length;
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'devices.panels.setHome' })); });
+    const saved = patchPanelDeviceMock.mock.calls.slice(before).at(-1)?.[1].layout as PanelLayout;
+    expect(saved.homePageId).toBe('p3');
+    expect(saved.activePageId).toBe('p3');
+    expect(saved.pages).toEqual(LAYOUT_3PAGES.pages);
+    expect(screen.getByRole('button', { name: 'devices.panels.setHome' })).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => { fireEvent.click(screen.getByLabelText('devices.panels.prevPage')); });
+    expect(screen.getByRole('button', { name: 'devices.panels.setHome' })).toHaveAttribute('aria-pressed', 'false');
+    expect(patchPanelDeviceMock.mock.calls.at(-1)?.[1].layout.homePageId).toBe('p3');
+  });
+
+  it('disables on the render-only blank page and while Home is saving', async () => {
+    await loadAndGoToLastPage();
+    let settle!: (value: null) => void;
+    patchPanelDeviceMock.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: 'devices.panels.setHome' }));
+    expect(screen.getByRole('button', { name: 'devices.panels.setHome' })).toBeDisabled();
+    await act(async () => { settle(null); });
+    expect(screen.getByRole('button', { name: 'devices.panels.setHome' })).toHaveAttribute('aria-pressed', 'false');
+    await act(async () => { fireEvent.click(screen.getByLabelText('devices.panels.nextPage')); });
+    expect(screen.getByRole('button', { name: 'devices.panels.setHome' })).toBeDisabled();
+  });
+
+  it('restores the previous Home when saving fails', async () => {
+    await loadAndGoToLastPage();
+    patchPanelDeviceMock.mockRejectedValueOnce(new Error('offline'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'devices.panels.setHome' })); });
+    expect(screen.getByRole('button', { name: 'devices.panels.setHome' })).toHaveAttribute('aria-pressed', 'false');
+    await act(async () => { fireEvent.click(screen.getByLabelText('devices.panels.prevPage')); });
+    expect(patchPanelDeviceMock.mock.calls.at(-1)?.[1].layout.homePageId).toBeUndefined();
+  });
+});
+
+describe('Y70 reordered layout persistence', () => {
+  it.each(['null', 'rejected'])('keeps the prior layout locked through a %s scope read and retries successfully', async failure => {
+    await loadAndGoToLastPage();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      if (failure === 'null') fetchPanelDevicesMock.mockResolvedValueOnce(null);
+      else fetchPanelDevicesMock.mockRejectedValueOnce(new Error('temporarily offline'));
+      await act(async () => { topicHandlers.get('prefs')?.({}); await vi.advanceTimersByTimeAsync(1); });
+      expect(screen.getByTestId('reorder')).toHaveAttribute('data-order', 'p1,p2,p3');
+      expect(embed().dataset.activePage).toBe('p3');
+      expect(screen.queryByTestId('reorder-to-first')).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(screen.getByTestId('reorder-to-first')).toBeInTheDocument();
+      expect(screen.getByTestId('reorder')).toHaveAttribute('data-order', 'p1,p2,p3');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('bounds automatic scope retries and offers a working manual retry without discarding pages', async () => {
+    await loadAndGoToLastPage();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const before = fetchPanelDevicesMock.mock.calls.length;
+      fetchPanelDevicesMock.mockResolvedValue(null);
+      act(() => { topicHandlers.get('prefs')?.({}); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      for (const delay of [500, 1500, 3000]) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+      }
+      expect(fetchPanelDevicesMock.mock.calls.length - before).toBe(4);
+      expect(screen.getByText('devices.panels.scopeLoadFailed')).toBeInTheDocument();
+      expect(screen.getByTestId('reorder')).toHaveAttribute('data-order', 'p1,p2,p3');
+      fetchPanelDevicesMock.mockResolvedValue({ devices: [{ id: 'dev1', capabilities: { surface: 'y70', touch: true }, layout: LAYOUT_3PAGES }] });
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'common.retry' })); });
+      expect(screen.getByTestId('reorder-to-first')).toBeInTheDocument();
+      expect(screen.queryByText('devices.panels.scopeLoadFailed')).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+  it('retires the gesture scope on profile prefs changes until the new record is loaded', async () => {
+    await loadAndGoToLastPage();
+    const owner = screen.getByTestId('reorder').dataset.owner;
+    let settle!: (value: unknown) => void;
+    fetchPanelDevicesMock.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    act(() => { topicHandlers.get('prefs')?.({}); });
+    expect(screen.getByTestId('reorder').dataset.owner).not.toBe(owner);
+    expect(screen.queryByTestId('reorder-to-first')).toBeNull();
+    await act(async () => { settle({ devices: [{ id: 'dev1', capabilities: { surface: 'y70', touch: true }, layout: LAYOUT_3PAGES }] }); });
+    expect(screen.getByTestId('reorder-to-first')).toBeInTheDocument();
+  });
+  it('saves complete pages in the new order while retaining the displayed page identity', async () => {
+    await loadAndGoToLastPage();
+    const before = patchPanelDeviceMock.mock.calls.length;
+    await act(async () => { fireEvent.click(screen.getByTestId('reorder-to-first')); });
+    const saved = patchPanelDeviceMock.mock.calls.slice(before).at(-1)?.[1].layout as PanelLayout;
+    expect(saved.pages.map(page => page.id)).toEqual(['p3', 'p1', 'p2']);
+    expect(saved.pages).toEqual([LAYOUT_3PAGES.pages[2], LAYOUT_3PAGES.pages[0], LAYOUT_3PAGES.pages[1]]);
+    expect(saved.activePageId).toBe('p3');
+    expect(embed().dataset.activePage).toBe('p3');
+    expect(prevDisabled()).toBe(true);
+  });
+  it('keeps original order and selection on failure and blocks conflicting navigation during save', async () => {
+    await loadAndGoToLastPage();
+    let settle!: (value: null) => void;
+    patchPanelDeviceMock.mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+    fireEvent.click(screen.getByTestId('reorder-to-first'));
+    expect(prevDisabled()).toBe(true);
+    expect(screen.getByTestId('reorder')).toHaveAttribute('data-order', 'p1,p2,p3');
+    await act(async () => { settle(null); });
+    expect(screen.getByTestId('reorder')).toHaveAttribute('data-order', 'p1,p2,p3');
+    expect(embed().dataset.activePage).toBe('p3');
+    expect(prevDisabled()).toBe(false);
+  });
+});
 
 async function loadAndGoToLastPage() {
   render(<PanelDevicePage device={DEVICE} />);

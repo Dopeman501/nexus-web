@@ -66,6 +66,14 @@ describe('widgetSupportsImmersiveOnLoad', () => {
 });
 
 describe('resolveImmersiveOnLoadWidget', () => {
+  it('follows the chosen Y70 Home and never launches an old first-page mark over it', () => {
+    const l = { ...layout([[widget('a', 'media')], [widget('b', 'media')]], 'a'), homePageId: 'p2' };
+    expect(resolveImmersiveOnLoadWidget(l)).toBeNull();
+    expect(canMarkImmersiveOnLoad(l, l.pages[1].widgets[0], 'y70', false)).toBe(true);
+    const marked = setImmersiveOnLoadWidgetId(l, 'b');
+    expect(resolveImmersiveOnLoadWidget(marked)?.id).toBe('b');
+    expect(immersiveOnLoadTarget({ layout: marked, surface: 'y70', landscape: false })?.id).toBe('b');
+  });
   it('returns the marked first-page widget', () => {
     const l = layout([[widget('a', 'media'), widget('b', 'clock')]], 'a');
     expect(resolveImmersiveOnLoadWidget(l)?.id).toBe('a');

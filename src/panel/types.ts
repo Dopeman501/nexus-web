@@ -536,6 +536,8 @@ export interface PanelLayout {
   surface: PanelSurface;
   pages: PanelPage[];
   activePageId?: string;
+  /** Y70 startup/double-tap destination. Missing or deleted means the first page. */
+  homePageId?: string;
   /** D215's independent circular composition; ordinary Widgets remain intact. */
   d215Panels?: D215PanelsState;
   /** Independent visibility and framing of the D215's one ordinary Widget. */
@@ -550,8 +552,7 @@ export interface PanelLayout {
   // multi-widget surfaces.
   widgetPlaylist?: PanelWidgetPlaylist;
   // Widget the panel opens straight into immersive view on load, skipping the
-  // dashboard. At most one, and it must be on the first page - the toggle that
-  // sets it is only reachable there, so normalizePanelLayout drops an id that
-  // names no first-page widget rather than stranding it.
+  // dashboard. At most one, on the effective Home page (first page by default).
+  // A mark on another page remains stored but inert until that page is Home.
   immersiveOnLoadWidgetId?: string;
 }

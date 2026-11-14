@@ -181,7 +181,7 @@ export function normalizePanelLayout(layout: PanelLayout, surface: PanelSurface,
 
   // Drop a mark whose widget is gone from the layout entirely; anything else is
   // left alone. resolveImmersiveOnLoadWidget already ignores a mark that is not
-  // on the first page, so a widget dragged to page 2 keeps it (inert) and gets
+  // on Home, so a widget dragged elsewhere keeps it (inert) and gets
   // it back on the way home - clearing on placement instead would destroy the
   // setting on a resize cascade, and clearing on surface capability would
   // destroy it in the window before a monitor's `deviceTouch` has loaded.
@@ -249,6 +249,7 @@ export function usePanelLayout(
   const [hydrated, setHydrated] = useState(false);
   const [saveForbidden, setSaveForbidden] = useState(false);
   const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const writesInFlightRef = useRef(0);
   // Writes are allowed only against a layout we actually read back.
   const storedLayout = record?.layout ?? null;
   const storedRef = useRef(storedLayout);
@@ -275,17 +276,25 @@ export function usePanelLayout(
     const incoming = canonKey(storedLayout);
     const own = ownWritesRef.current;
     const at = own.lastIndexOf(incoming);
+    // A reconnect can reread the pre-edit record before the debounced save
+    // lands. Keep the local intent during both its debounce and in-flight
+    // window; preserving only the timer still lets the old page repaint.
+    if (own.length > 0 && (writeTimer.current || writesInFlightRef.current > 0)
+      && incoming === pendingBaseRef.current) return;
     // A record that moved on under a pending edit (profile switch) must not
     // be overwritten by the stale edit.
-    if (writeTimer.current && pendingBaseRef.current !== null
+    if (own.length > 0 && pendingBaseRef.current !== null
       && incoming !== pendingBaseRef.current && at < 0) {
-      clearTimeout(writeTimer.current);
+      if (writeTimer.current) clearTimeout(writeTimer.current);
       writeTimer.current = null;
       ownWritesRef.current = [];
+      pendingBaseRef.current = null;
     } else if (at >= 0) {
       // Echo seen: older writes are superseded. The newest entry is kept
       // while a newer edit is queued, since a duplicate echo can still land.
       ownWritesRef.current = at === own.length - 1 && !writeTimer.current ? [] : own.slice(at);
+      // An echo of our older write acknowledges it, not the newer local edit.
+      if (at < own.length - 1 && (writeTimer.current || writesInFlightRef.current > 0)) return;
     }
     setLayoutState(normalizePanelLayout(storedLayout ?? defaultLayoutForSurface(surface), surface, deviceTouch, forcedGrid, displayBound));
     setHydrated(storedLayout !== null);
@@ -300,10 +309,14 @@ export function usePanelLayout(
     ownWritesRef.current = [...ownWritesRef.current, canonicalJson(normalized)].slice(-8);
     writeTimer.current = setTimeout(() => {
       writeTimer.current = null;
+      writesInFlightRef.current += 1;
       void patchPanelDeviceWithStatus(deviceId, { layout: normalized }).then(result => {
         if (result.ok) {
           setSaveForbidden(false);
           broadcastLayoutChanged();
+          // Confirmed save ends base protection. A fresh read also supersedes
+          // pre-ack GETs in usePanelRecord, even if the socket echo was lost.
+          refetch();
         } else if (result.status === 404) {
           writableRef.current = false;
           refetch();
@@ -314,7 +327,7 @@ export function usePanelLayout(
           setLayoutState(normalizePanelLayout(
             storedRef.current ?? defaultLayoutForSurface(surface), surface, deviceTouch, forcedGrid, displayBound));
         }
-      });
+      }).finally(() => { writesInFlightRef.current -= 1; });
     }, 250);
   }, [deviceId, surface, deviceTouch, forcedGrid, displayBound, refetch, canonKey]);
 

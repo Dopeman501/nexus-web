@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ArrowLeft, Trash2, Upload, Sparkles, LayoutDashboard, Palette, Settings, Download, Unplug, Camera, Wallpaper, ExternalLink, PanelsTopLeft } from 'lucide-react';
 import { ViewHeader } from '../../common/ViewHeader/ViewHeader';
+import { resolveHomePage, setHomePage } from '../../../panel/engine/homePage';
+import { usePanelLayoutWriter } from './usePanelLayoutWriter';
+import { Y70PageReorder } from './Y70PageReorder';
+import { movePanelPage } from './pageReorderModel';
 import { SettingsSection } from '../../common/SettingsSection/SettingsSection';
 import { D215RotationSettings } from './D215RotationSettings';
 import { D215RestartSettings } from './D215RestartSettings';
@@ -235,6 +239,7 @@ function toTouchRepairErrorStatus(status: string): TouchRepairErrorStatus {
 }
 
 const WRITE_FAIL_TOAST_GAP_MS = 4000;
+const PANEL_SCOPE_RETRY_MS = [500, 1500, 3000] as const;
 
 type Tab = 'widgets' | 'panels' | 'theme' | 'background' | 'settings';
 
@@ -334,6 +339,16 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   const [qSeriesSleepWhenLocked, setQSeriesSleepWhenLocked] = useState(true);
   const [recordSleepWhenLocked, setRecordSleepWhenLocked] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [homeSaving, setHomeSaving] = useState(false);
+  const [pageReorderBusy, setPageReorderBusy] = useState(false);
+  const [pageScopeEpoch, setPageScopeEpoch] = useState(0);
+  const pageScopeEpochRef = useRef(0);
+  const [pageScopeLoading, setPageScopeLoading] = useState(false);
+  const pageScopeLoadingRef = useRef(false);
+  const [pageScopeFailed, setPageScopeFailed] = useState(false);
+  const pageScopeRetriesRef = useRef(0);
+  const pageScopeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const homeSaveGeneration = useRef(0);
   const [layout, setLayout] = useState<PanelLayout>(() => defaultLayoutForSurface('y70'));
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   // Live canvas size reported by the kiosk's SPA via capabilities. Overrides
@@ -732,6 +747,31 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   // the panel's hue instead of the desktop default.
   const panelPreviewThemeStyle = buildPanelThemeVars(theme, desktopResolvedThemeMode);
 
+  const retryPanelScope = useCallback(() => {
+    if (!pageScopeLoadingRef.current || pageScopeRetryTimerRef.current !== null) return;
+    const delay = PANEL_SCOPE_RETRY_MS[pageScopeRetriesRef.current++];
+    if (delay === undefined) { setPageScopeFailed(true); return; }
+    pageScopeRetryTimerRef.current = setTimeout(() => {
+      pageScopeRetryTimerRef.current = null;
+      setSettingsRefreshNonce(value => value + 1);
+    }, delay);
+  }, []);
+  const reloadPanelScope = useCallback(() => {
+    if (pageScopeRetryTimerRef.current !== null) clearTimeout(pageScopeRetryTimerRef.current);
+    pageScopeRetryTimerRef.current = null;
+    pageScopeRetriesRef.current = 0;
+    pageScopeEpochRef.current += 1;
+    homeSaveGeneration.current += 1;
+    pageScopeLoadingRef.current = true;
+    setPageScopeEpoch(pageScopeEpochRef.current);
+    setPageScopeLoading(true);
+    setPageScopeFailed(false);
+    setSettingsRefreshNonce(value => value + 1);
+  }, []);
+  useEffect(() => () => {
+    if (pageScopeRetryTimerRef.current !== null) clearTimeout(pageScopeRetryTimerRef.current);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -748,6 +788,8 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       supportsDisplayControls ? fetchService<KeepCursorOffResponse>('/y70/keep-cursor-off').catch(() => null) : Promise.resolve(null),
     ]).then(([b, r, tog, qRotation, qDisplay, prefs, devices, compat, cursorOff]) => {
       if (cancelled) return;
+      const match = matchPanelRecord(devices?.devices, boundRecordId(), deviceSurface, isSimulated);
+      if (pageScopeLoadingRef.current && (!devices || !match)) { retryPanelScope(); return; }
       if (b) setBrightness(b.brightness);
       setCompatibilityRendering(compat);
       setKeepCursorOff(cursorOff);
@@ -764,7 +806,6 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       }
       // /y70/toggle returns the persisted ScreenOff value, not "screen on".
       if (tog) setScreenOn(!tog.toggle);
-      const match = matchPanelRecord(devices?.devices, boundRecordId(), deviceSurface, isSimulated);
       const d215Surface = d215SurfaceOf(match);
       setD215GlassSurface(d215Surface);
       setEditingDeviceId(match?.id ?? null);
@@ -802,6 +843,10 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       const loaded = layoutSurfaceOf(match, match?.capabilities?.touch ?? device?.capabilities.touch);
       const savedLayout = match?.layout ?? defaultLayoutForSurface(loaded.surface);
       setLayout(normalizePanelLayout(savedLayout, loaded.surface, loaded.touch, loaded.forcedGrid, !!match?.displayId));
+      pageScopeLoadingRef.current = false;
+      setPageScopeLoading(false);
+      setPageScopeFailed(false);
+      pageScopeRetriesRef.current = 0;
       if (prefs) {
         setAutoLaunch(prefs.panel?.autoLaunch ?? true);
         setReserveMonitor(prefs.panel?.reserveMonitor ?? true);
@@ -811,9 +856,13 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       // Non-Xeneon panels re-enable the hardware-reset button once these
       // reads land; Xeneon waits for its slower DDC re-read above.
       if (!isXeneonEdgePanel) setResettingHardware(false);
-    }).catch(() => { if (!cancelled) { setLoaded(true); setResettingHardware(false); } });
+    }).catch(() => {
+      if (cancelled) return;
+      if (pageScopeLoadingRef.current) { retryPanelScope(); return; }
+      setLoaded(true); setResettingHardware(false);
+    });
     return () => { cancelled = true; };
-  }, [deviceSurface, layoutSurfaceOf, supportsDisplayControls, isQSeries, isXeneonEdgePanel, boundRecordId, isSimulated, device?.capabilities.touch, settingsRefreshNonce]);
+  }, [deviceSurface, layoutSurfaceOf, supportsDisplayControls, isQSeries, isXeneonEdgePanel, boundRecordId, isSimulated, device?.capabilities.touch, settingsRefreshNonce, retryPanelScope]);
 
   const pushBrightness = (value: number) => {
     setBrightness(value);
@@ -936,11 +985,13 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   // that write was in flight.
   const refetchDeviceRecord = useCallback(() => {
     if (!editingDeviceId) return;
+    const scopeEpoch = pageScopeEpochRef.current;
     // Ignore a result a newer local write overtook while it was in flight.
     const seq = writeSeqRef.current;
     const d215Read = ++latestD215Read.current;
     fetchPanelDevice(editingDeviceId).then(record => {
-      if (!record || (isD215Panel && d215Read !== latestD215Read.current)) return;
+      if (!record || scopeEpoch !== pageScopeEpochRef.current || pageScopeLoadingRef.current
+        || (isD215Panel && d215Read !== latestD215Read.current)) return;
       const d215Surface = d215SurfaceOf(record);
       setD215GlassSurface(d215Surface);
       const canvas = recordCanvasOf(record);
@@ -1014,15 +1065,18 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     if (id) void patchPanelDevice(id, { portrait }).catch(() => {});
   };
 
+  const writeOrderedLayout = usePanelLayoutWriter(editingDeviceId ? `${editingDeviceId}:${pageScopeEpoch}` : null,
+    (id, patch) => patchPanelDevice(id, patch).then(saved => saved !== null));
   const writeRecordPatch = useCallback((id: string, patch: PanelDevicePatch) => {
     pendingWritesRef.current += 1;
     writeSeqRef.current += 1;
-    return patchPanelDevice(id, patch)
-      .then(saved => {
+    return writeOrderedLayout(id, patch)
+      .then(ok => {
         broadcastLayoutChanged();
-        if (saved === null) reportWriteFailed();
+        if (!ok) reportWriteFailed();
+        return ok;
       })
-      .catch(reportWriteFailed)
+      .catch(() => { reportWriteFailed(); return false; })
       .finally(() => {
         pendingWritesRef.current -= 1;
         if (pendingWritesRef.current === 0 && missedBroadcastRef.current) {
@@ -1030,7 +1084,12 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
           refetchDeviceRecord();
         }
       });
-  }, [refetchDeviceRecord, reportWriteFailed]);
+  }, [refetchDeviceRecord, reportWriteFailed, writeOrderedLayout]);
+
+  useEffect(() => {
+    setHomeSaving(false);
+    return () => { homeSaveGeneration.current += 1; };
+  }, [editingDeviceId, pageScopeEpoch]);
 
   const toggleRestricted = useCallback(() => {
     if (!editingDeviceId) return;
@@ -1052,6 +1111,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
   }, [editingDeviceId, recordRestricted, refetchDeviceRecord, reportWriteFailed]);
 
   const updateLayout = useCallback((next: PanelLayout) => {
+    if (pageScopeLoadingRef.current) return;
     // Normalize is geometry-neutral (registry reconcile + size snap only), so
     // conform the geometry to the editor grid before persisting - the stored
     // bytes must be a fixed point of the capacity repair or the preview and
@@ -1085,6 +1145,10 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
       }
     }).finally(() => { allocatingRef.current = false; });
   }, [editingDeviceId, simulatorId, surface, glassSurface, registryTouch, forcedGrid, isMonitorPanel, editorCapacity, editorCapacityDerived, genericOnePage, writeRecordPatch]);
+
+  // A profile switch publishes prefs even when shared pages retain their IDs.
+  // Retire captured/queued edits immediately, then load the new scope afresh.
+  useTopicCallback('prefs', glassSurface === 'y70', reloadPanelScope);
 
   // Reverse sync: when the physical panel (or another editor) saves a layout,
   // the service broadcasts panel/device with the changed id. Refetch this
@@ -1403,6 +1467,39 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
     updateLayout({ ...layout, activePageId: pageSlots[next] });
   }, [currentSlot, layout, pageSlots, updateLayout]);
 
+  const saveCurrentPageAsHome = useCallback(() => {
+    if (!loaded || !editingDeviceId || homeSaving || pageReorderBusy || pageScopeLoadingRef.current) return;
+    const pageId = pageSlots[currentSlot];
+    const next = setHomePage(layout, pageId);
+    if (next === layout) return;
+    const generation = ++homeSaveGeneration.current;
+    const previousHome = layout.homePageId;
+    const sequence = writeSeqRef.current + 1;
+    setHomeSaving(true);
+    setLayout(next);
+    void writeRecordPatch(editingDeviceId, { layout: next }).then(ok => {
+      if (generation !== homeSaveGeneration.current) return;
+      // Restore only this failed preference, never a later page/widget edit.
+      if (!ok && writeSeqRef.current === sequence) setLayout(current => (
+        current.homePageId === pageId ? { ...current, homePageId: previousHome } : current
+      ));
+      setHomeSaving(false);
+    });
+  }, [currentSlot, editingDeviceId, homeSaving, layout, loaded, pageSlots, pageReorderBusy, writeRecordPatch]);
+
+  const commitPageOrder = useCallback(async (pageId: string, to: number, originalOrder: readonly string[]) => {
+    if (!loaded || !editingDeviceId || pageScopeLoadingRef.current || pageScopeEpochRef.current !== pageScopeEpoch) return false;
+    const next = movePanelPage(layout, pageId, to, originalOrder);
+    if (next === layout) return false;
+    const generation = homeSaveGeneration.current;
+    const ok = await writeRecordPatch(editingDeviceId, { layout: next });
+    if (!ok || generation !== homeSaveGeneration.current) return false;
+    // Do not repack or overwrite later widget/settings edits for a pure move.
+    // A rejected save leaves the original order in place throughout.
+    setLayout(current => movePanelPage(current, pageId, to, originalOrder));
+    return true;
+  }, [editingDeviceId, layout, loaded, pageScopeEpoch, writeRecordPatch]);
+
   // Captures the preview iframe at the device's physical resolution, so the
   // saved image matches the glass pixel-for-pixel in the current orientation.
   const takeScreenshot = useCallback(async () => {
@@ -1669,6 +1766,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
         )}
       />
       <div className={`${styles.pageBody} pageBody`}>
+      {pageScopeFailed && <Notice tone="warning" role="alert" actions={
+        <Button size="sm" onClick={reloadPanelScope}>{t('common.retry')}</Button>
+      }>{t('devices.panels.scopeLoadFailed')}</Notice>}
       {!fwGateReady ? (
         <div style={{ color: 'var(--text-dim)', padding: 20 }}>{t('devices.loading')}</div>
       ) : showQseriesUnresponsive ? (
@@ -1714,10 +1814,10 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
           }
         />
       ) : (
-        <div className={styles.splitLayout} data-layout={dockPreview ? 'stacked' : 'columns'}>
+        <div className={styles.splitLayout} data-panel-editor-layout data-layout={dockPreview ? 'stacked' : 'columns'} data-reordering={pageReorderBusy || undefined}>
           {/* Options pane on the left; live preview on the right. Landscape
               strip panels stack instead: options above, canvas docked below. */}
-          <div className={styles.leftPane}>
+          <div className={styles.leftPane} inert={pageReorderBusy || pageScopeLoading}>
             {configuringWidget ? (
               <PanelGaugeGradientProvider value={gaugeGradientValue}>
               <InlineWidgetSettings
@@ -2395,11 +2495,26 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
             {isMonoFamily(recordFamily) && <MonoPreviewFilter />}
             <div className={styles.previewStage}>
               <>
+              {glassSurface === 'y70' && (
+                <Button
+                  tone="ghost"
+                  className={styles.homeButton}
+                  aria-label={t('devices.panels.setHome')}
+                  aria-pressed={!showingBlankPage && pageSlots[currentSlot] === resolveHomePage(layout)?.id}
+                  title={t('devices.panels.setHome.hint')}
+                  disabled={!loaded || !editingDeviceId || showingBlankPage || pageReorderBusy || pageScopeLoading}
+                  loading={homeSaving}
+                  onClick={saveCurrentPageAsHome}
+                  icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m2 11 9.2-8.6a1.2 1.2 0 0 1 1.6 0L22 11M4 9.2V21a1 1 0 0 0 1 1h4V16a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v6h4a1 1 0 0 0 1-1V9.2" />
+                  </svg>}
+                />
+              )}
               {showPageArrows && (
                 <PanelArrowButton
                   side="prev"
                   className={styles.pageArrow}
-                  disabled={currentSlot <= 0}
+                  disabled={currentSlot <= 0 || pageReorderBusy || pageScopeLoading}
                   onClick={() => goToPage(-1)}
                   ariaLabel={t('devices.panels.prevPage')}
                 />
@@ -2408,7 +2523,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                 <PanelArrowButton
                   side="next"
                   className={styles.pageArrow}
-                  disabled={currentSlot >= pageSlots.length - 1}
+                  disabled={currentSlot >= pageSlots.length - 1 || pageReorderBusy || pageScopeLoading}
                   onClick={() => goToPage(1)}
                   ariaLabel={t('devices.panels.nextPage')}
                 />
@@ -2429,6 +2544,9 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                   ariaLabel={t('panel.playlist.next')}
                 />
               )}
+              <Y70PageReorder enabled={glassSurface === 'y70' && loaded && !!editingDeviceId && !homeSaving && !pageScopeLoading}
+                ownerKey={`${editingDeviceId ?? device.id}:${pageScopeEpoch}`} layout={layout} pageId={pageSlots[currentSlot] ?? ''}
+                onCommit={commitPageOrder} onBusyChange={setPageReorderBusy}>
               <PanelEmbedFrame
                 // The simulator takes its surface once, at init: a Widget size change remounts it.
                 key={isD215Panel ? `${editingDeviceId ?? device.id}:${surface}` : surface}
@@ -2466,6 +2584,7 @@ export function PanelDevicePage({ device, platform = '', onOpenFirmware, onSecti
                 monoFilterId={isMonoFamily(recordFamily) ? MONO_FILTER_ID : undefined}
                 onPlaylistShown={handlePlaylistShown}
               />
+              </Y70PageReorder>
               {isHydroShift2CurvePanel && curveScreen.playingClip && (
                 <video
                   key={curveScreen.playingClip}

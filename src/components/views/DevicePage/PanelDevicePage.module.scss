@@ -140,6 +140,31 @@
   &[data-side='next'] { right: 8px; }
 }
 
+// Beside the portrait preview's upper-right, in the user's marked free space.
+.homeButton {
+  position: absolute;
+  top: 4%;
+  right: clamp(8px, calc((100% - 400px) / 2), 200px);
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  z-index: 2;
+  color: var(--text-dim);
+
+  svg { width: 32px; height: 32px; }
+
+  &[aria-pressed='true'] { color: var(--accent); }
+}
+
+// A landscape Y70 fills the preview width; reserve a row above its glass.
+.splitLayout[data-layout='stacked'] .previewStage:has(.homeButton) {
+  padding-top: 56px;
+  box-sizing: border-box;
+
+  .homeButton { top: 4px; right: 8px; }
+}
+
 .toggleLabel {
   display: flex;
   align-items: center;

@@ -33,6 +33,8 @@ import { useWidgetPlaylistRotation } from './engine/useWidgetPlaylistRotation';
 import { useMachineName } from './engine/useMachineName';
 import { useEdgeAdvance } from './engine/useEdgeAdvance';
 import { usePageSync } from './engine/usePageSync';
+import { resolveHomePage } from './engine/homePage';
+import { useBackgroundHomeGesture } from './engine/useBackgroundHomeGesture';
 import { useConnectionIntro } from './engine/useConnectionIntro';
 import { useHomeIntro } from './engine/useHomeIntro';
 import { PANEL_CONTEXT_MENU_TRIGGER_MS, usePanelTouchMode } from './engine/usePanelTouchMode';
@@ -1667,6 +1669,19 @@ export function PanelContent({
     || touch.rearranging
     || restricted
     || emptySpaceInert;
+  useBackgroundHomeGesture({
+    enabled: glassSurface === 'y70' && kioskBehavior && loaded && hydrated !== false
+      && !screenHidden && !isOffline && !emptySpaceInert && !trayOpen && !controlCenterOpen
+      && !sheetMode && !immersiveWidgetId && !activeDragId && !dragArmedId && !touch.rearranging
+      && !touch.ctxMenu && !freeformActive && !connectionIntroBlocked && !connectionIntroHost,
+    rootRef,
+    resetKey: JSON.stringify([deviceId, activePageIndex, layout.homePageId, allFiltered.map(page => page.id)]),
+    onHome: () => {
+      const homeId = resolveHomePage(paginatedLayout)?.id;
+      const index = allFiltered.findIndex(page => page.id === homeId);
+      handlePageChange(Math.max(0, index));
+    },
+  });
   const handleBackgroundPointerDown = useCallback((e: React.PointerEvent) => {
     if (backgroundPressBlocked) return;
     if (!(e.target instanceof Element)) return;
@@ -2664,7 +2679,7 @@ export function PanelContent({
           />
         )}
         {backgroundHoverTarget && loaded && <BackgroundHoverLayer active={backgroundHover} area={backgroundArea} />}
-        {!loaded ? (
+        {!loaded || (hydrated === false && recordState.record?.layout) ? (
           <PanelLoadingGate surface={surface} />
         ) : (
           <>
