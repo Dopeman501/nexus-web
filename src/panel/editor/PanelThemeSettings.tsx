@@ -36,6 +36,8 @@ import { EffectControls } from '../widgets/lighting/page/EffectControls';
 import { BackgroundMediaPicker } from '../background/BackgroundMediaPicker';
 import { PanelAudioTriggerSettings } from '../background/AudioTriggerSettings';
 import type { AudioTriggerSettings } from '../background/audioTrigger';
+import { resolveAudioTriggerBeatTransition, type AudioTriggerBeatTransitionSettings, type BackgroundTransitionSettings, type SharedBackgroundTransitionSettings } from '../background/transitions/settings';
+import { BackgroundTransitionControls } from '../background/BackgroundTransitionControls';
 import { Notice } from '../../components/common/Notice/Notice';
 import styles from './PanelThemeSettings.module.scss';
 
@@ -91,6 +93,10 @@ export interface PanelThemeSettingsState {
   // Asset ids in grid / in-order play order; unlisted assets follow, oldest first.
   backgroundMediaOrder: string[];
   backgroundAudioTrigger?: AudioTriggerSettings;
+  backgroundTransitions?: SharedBackgroundTransitionSettings;
+  backgroundAudioTriggerBeatTransition?: AudioTriggerBeatTransitionSettings;
+  backgroundMediaTransition?: BackgroundTransitionSettings;
+  backgroundAudioTriggerTransition?: BackgroundTransitionSettings;
   // Frosted-glass blur over the background layer (shader / media / wallpaper),
   // percent 0-100 (see DEFAULT_PANEL_BACKGROUND_FROST).
   backgroundFrost: number;
@@ -133,6 +139,8 @@ export interface PanelThemeSettingsProps {
   onBackgroundSlideshowCommit: (patch: Partial<PanelSlideshowSettings>) => void;
   onBackgroundMediaOrderCommit: (ids: string[]) => void;
   onBackgroundAudioTriggerCommit?: (settings: AudioTriggerSettings) => void;
+  onBackgroundTransitionsCommit?: (settings: SharedBackgroundTransitionSettings) => void;
+  onBackgroundAudioTriggerBeatTransitionCommit?: (settings: AudioTriggerBeatTransitionSettings) => void;
   onBackgroundFrostPreview: (percent: number) => void;
   onBackgroundFrostCommit: (percent: number) => void;
   onImmersiveBackdropCommit: (enabled: boolean) => void;
@@ -221,6 +229,8 @@ export function PanelThemeSettings({
   onBackgroundSlideshowCommit,
   onBackgroundMediaOrderCommit,
   onBackgroundAudioTriggerCommit,
+  onBackgroundTransitionsCommit,
+  onBackgroundAudioTriggerBeatTransitionCommit,
   onBackgroundFrostPreview,
   onBackgroundFrostCommit,
   onImmersiveBackdropCommit,
@@ -398,9 +408,11 @@ export function PanelThemeSettings({
   );
 
   const audioTriggerControls = audioReactive && !independentBackground && onBackgroundAudioTriggerCommit ? (
-    <PanelAudioTriggerSettings value={theme.backgroundAudioTrigger} onChange={onBackgroundAudioTriggerCommit}
+    <><PanelAudioTriggerSettings value={theme.backgroundAudioTrigger} onChange={onBackgroundAudioTriggerCommit}
+      beatTransition={resolveAudioTriggerBeatTransition(theme)} onBeatTransitionChange={onBackgroundAudioTriggerBeatTransitionCommit}
       themeMode={resolvedThemeMode} deviceId={deviceId} deviceAspect={deviceAspect} deviceW={deviceW} deviceH={deviceH}
       round={roundDisplay} />
+    </>
   ) : null;
 
   return (
@@ -603,6 +615,8 @@ export function PanelThemeSettings({
             </>}
             {theme.backdrop !== 'theme' ? null : (
             <>
+            {!independentBackground && !hideBackgroundAppearanceControls && onBackgroundTransitionsCommit &&
+              <BackgroundTransitionControls value={theme.backgroundTransitions} onCommit={onBackgroundTransitionsCommit} deviceId={deviceId} />}
             {theme.backgroundMode === 'solid' ? (
               <>
                 {backgroundModeChips}

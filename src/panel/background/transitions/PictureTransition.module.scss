@@ -1,0 +1,8 @@
+.stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  contain: paint;
+  pointer-events: none;
+  isolation: isolate;
+}

@@ -1,0 +1,2 @@
+# Preserve the pinned upstream Git blob bytes on Windows checkouts.
+transition-lab/codrops-catalogue/vendor/** -text

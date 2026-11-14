@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BackgroundMediaItem } from '../../api/panelBackgroundMedia';
 import { PanelBackgroundSlideshow } from './PanelBackgroundSlideshow';
+import { useBackgroundPictureTransition } from './backgroundPictureTransition';
 
 const api = vi.hoisted(() => ({
   items: [] as BackgroundMediaItem[],
@@ -14,7 +15,14 @@ const api = vi.hoisted(() => ({
   ended: new Map<string, (video: HTMLVideoElement) => void>(),
   // Latest onFailed handler per mounted layer, to fail one on demand.
   failers: new Map<string, () => void>(),
+  completeEffect: () => {},
+  effectSettings: { effect: '', durationMs: 0 },
 }));
+vi.mock('./transitions/PictureTransition', () => ({ PictureTransition: (props: { onComplete(): void; settings: { effect: string; durationMs: number } }) => {
+  api.completeEffect = props.onComplete;
+  api.effectSettings = props.settings;
+  return <div data-testid="slideshow-picture-effect" />;
+} }));
 
 vi.mock('../../api/panelBackgroundMedia', () => ({
   fetchBackgroundMediaLibrary: vi.fn(() => Promise.resolve({ items: api.items })),
@@ -24,9 +32,10 @@ vi.mock('../../hooks/useMultiplexSocket', () => ({ useTopicCallback: () => {} })
 // A layer that decodes on mount and whose fade-in completes as soon as it is
 // ready, so the slideshow's own state machine is what the clock drives.
 vi.mock('./PanelBackgroundMedia', () => ({
-  PanelBackgroundMedia: ({ id, type, alpha, ready = true, onLoaded, onFadedIn, onFailed, onVideoEnded }: {
+  PanelBackgroundMedia: ({ id, type, alpha, ready = true, onLoaded, onFadedIn, onFailed, onVideoEnded, onImageReady, onMediaReady }: {
     id: string; type: string; alpha?: boolean; ready?: boolean; onLoaded?: () => void; onFadedIn?: () => void;
-    onFailed?: () => void; onVideoEnded?: (video: HTMLVideoElement) => void;
+    onFailed?: () => void; onVideoEnded?: (video: HTMLVideoElement) => void; onImageReady?: (image: HTMLImageElement) => void;
+    onMediaReady?: (source: HTMLImageElement | null) => void;
   }) => {
     const isVideo = type === 'animated' && !alpha;
     if (isVideo && onVideoEnded) api.ended.set(id, onVideoEnded);
@@ -34,7 +43,15 @@ vi.mock('./PanelBackgroundMedia', () => ({
     useEffect(() => () => { api.ended.delete(id); }, [id]);
     useEffect(() => {
       if (api.broken.has(id)) onFailed?.();
-      else if (!api.stalled.has(id)) onLoaded?.();
+      else if (!api.stalled.has(id)) {
+        if (type === 'static' && !alpha) {
+          const frame = new Image(); frame.src = `https://localhost/${id}.jpg`;
+          Object.defineProperties(frame, { naturalWidth: { value: 100 }, naturalHeight: { value: 50 } });
+          if (onMediaReady) onMediaReady(frame);
+          else onImageReady?.(frame);
+        }
+        onLoaded?.();
+      }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
     useEffect(() => {
@@ -63,7 +80,7 @@ const endVideo = async (id: string, el: ReturnType<typeof fakeVideo>) => {
 
 const shown = () => screen.getAllByTestId('slide').map(el => el.getAttribute('data-id'));
 
-async function renderShow(startId: string | null, over: Partial<{ shuffle: boolean; order: string[]; covered: boolean }> = {}) {
+async function renderShow(startId: string | null, over: Partial<{ shuffle: boolean; order: string[]; covered: boolean; transition: { effect: string; durationMs: number } }> = {}) {
   const view = render(
     <PanelBackgroundSlideshow
       deviceId="dev1"
@@ -74,6 +91,7 @@ async function renderShow(startId: string | null, over: Partial<{ shuffle: boole
       order={over.order ?? []}
       opacity={1}
       covered={over.covered}
+      transition={over.transition}
     />,
   );
   // The library fetch resolves on the microtask queue.
@@ -82,6 +100,21 @@ async function renderShow(startId: string | null, over: Partial<{ shuffle: boole
 }
 
 const tick = async (ms: number) => { await act(async () => { vi.advanceTimersByTime(ms); }); };
+
+function AudioReturnHarness({ audio }: { audio: boolean }) {
+  const picture = useBackgroundPictureTransition({ ownerKey: 'dev1', enabled: true,
+    settings: { effect: 'curtains:wave', durationMs: 800 },
+    selection: { key: audio ? 'audio' : 'normal', channel: audio ? 'audio' : 'normal', eligible: true, opacity: 1, frost: 0 } });
+  const onImageReady = picture.onImageReady;
+  useEffect(() => {
+    if (!audio) return;
+    const frame = new Image(); frame.src = 'https://localhost/audio.jpg';
+    Object.defineProperties(frame, { naturalWidth: { value: 100 }, naturalHeight: { value: 50 } });
+    onImageReady(frame);
+  }, [audio, onImageReady]);
+  return <>{!audio && <PanelBackgroundSlideshow deviceId="dev1" startId="a" intervalSec={10}
+    shuffle={false} finishVideos order={[]} opacity={1} onImageReady={picture.onImageReady} />}{picture.overlay}</>;
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -96,6 +129,65 @@ afterEach(() => {
 });
 
 describe('PanelBackgroundSlideshow', () => {
+  it('reserves one shared cycle choice at decoded readiness and locks it until promotion', async () => {
+    api.items = [item('a', 1), item('b', 2)];
+    const chooseTransition = vi.fn(() => ({ effect: 'curtains:wave', durationMs: 1200 }));
+    const props = { deviceId: 'one', startId: 'a', intervalSec: 10, shuffle: false, finishVideos: true, order: [], opacity: 1,
+      transition: { effect: 'gl-transitions:WaterDrop', durationMs: 800 }, chooseTransition };
+    const view = render(<PanelBackgroundSlideshow {...props} />); await act(async () => {});
+    expect(chooseTransition).not.toHaveBeenCalled(); await tick(10000);
+    expect(chooseTransition).toHaveBeenCalledOnce(); expect(api.effectSettings).toEqual({ effect: 'curtains:wave', durationMs: 1200 });
+    view.rerender(<PanelBackgroundSlideshow {...props} transition={{ ...props.transition, durationMs: 5000 }} />);
+    expect(api.effectSettings.durationMs).toBe(1200); expect(chooseTransition).toHaveBeenCalledOnce();
+    act(() => api.completeEffect()); await tick(10000); expect(chooseTransition).toHaveBeenCalledTimes(2);
+  });
+  it('never republishes a retired device picture through a new owner while its library/decode is pending', async () => {
+    api.items = [item('a', 1)];
+    const firstFrames = vi.fn();
+    const nextFrames = vi.fn();
+    const props = { startId: null, intervalSec: 10, shuffle: false, finishVideos: true, order: [], opacity: 1 };
+    const view = render(<PanelBackgroundSlideshow {...props} deviceId="first" onImageReady={firstFrames} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(firstFrames.mock.calls.some(([image]) => image?.src.includes('/a.jpg'))).toBe(true);
+    api.items = [item('b', 2)]; api.stalled.add('b');
+    view.rerender(<PanelBackgroundSlideshow {...props} deviceId="second" onImageReady={nextFrames} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(nextFrames).not.toHaveBeenCalled();
+    expect(shown()).toEqual(['b']);
+  });
+
+  it('retains the outgoing audio picture while a normal slideshow remounts and loads its first frame', async () => {
+    api.items = [item('a', 1)];
+    const view = render(<AudioReturnHarness audio />);
+    view.rerender(<AudioReturnHarness audio={false} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByTestId('slideshow-picture-effect')).not.toBeNull();
+    await act(async () => api.completeEffect());
+    expect(screen.queryByTestId('slideshow-picture-effect')).toBeNull();
+    expect(shown()).toEqual(['a']);
+  });
+
+  it('holds decoded image pairs until a selected GL/Curtains effect completes', async () => {
+    api.items = [item('b', 2), item('a', 1)];
+    await renderShow('a', { transition: { effect: 'curtains:wave', durationMs: 1600 } });
+    await tick(10_000);
+    expect(shown()).toEqual(['a', 'b']);
+    expect(screen.getByTestId('slideshow-picture-effect')).not.toBeNull();
+    await tick(1100);
+    expect(shown()).toEqual(['a', 'b']);
+    await act(async () => api.completeEffect());
+    expect(shown()).toEqual(['b']);
+    expect(screen.queryByTestId('slideshow-picture-effect')).toBeNull();
+  });
+
+  it('cuts immediately when none is explicitly selected', async () => {
+    api.items = [item('b', 2), item('a', 1)];
+    await renderShow('a', { transition: { effect: 'none', durationMs: 800 } });
+    await tick(10_000);
+    expect(shown()).toEqual(['b']);
+    expect(screen.queryByTestId('slideshow-picture-effect')).toBeNull();
+  });
+
   it('opens on the selected slide and keeps cycling through a lap wrap', async () => {
     // Library order is newest first; the cycle runs oldest first.
     api.items = [item('b', 2), item('a', 1)];

@@ -23,13 +23,14 @@ interface Props<T> {
   labels: { add: string; update: string; new: string; edit: (index: number) => string;
     remove: (index: number) => string; hint: string; empty: string };
   leadingControls?: ReactNode;
+  afterShuffleControls?: ReactNode;
   autoSave?: boolean;
   children: ReactNode;
 }
 
 /** Shared by display backgrounds and lighting. The toolbar stays outside the scroll body. */
 export function AudioTriggerMenuContent<T>({ intensity, switchDelay, shuffle, onChange, items, maximum,
-  editingIndex, canSave, onSave, onNew, onEdit, onRemove, renderItem, labels, leadingControls, autoSave = false, children }: Props<T>) {
+  editingIndex, canSave, onSave, onNew, onEdit, onRemove, renderItem, labels, leadingControls, afterShuffleControls, autoSave = false, children }: Props<T>) {
   const { t } = useTranslation();
   const [draftIntensity, setIntensity] = useState<number | null>(null);
   const [draftDelay, setDelay] = useState<number | null>(null);
@@ -53,6 +54,7 @@ export function AudioTriggerMenuContent<T>({ intensity, switchDelay, shuffle, on
         onChange={(number, commit) => { setDelay(number); if (commit) { onChange({ switchDelay: number }); setDelay(null); } }}
         onCommit={number => { onChange({ switchDelay: number }); setDelay(null); }} />
       <SettingToggle label={label('slideshow.shuffle', 'Shuffle')} checked={shuffle} onChange={shuffle => onChange({ shuffle })} />
+      {afterShuffleControls}
       <p className={styles.hint}>{labels.hint}</p>
       {items.length === 0 && <Notice tone="info">{labels.empty}</Notice>}
       <ol className={styles.selection}>

@@ -1,0 +1,4 @@
+.overlay { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: var(--backdrop-base); }
+.paint { position: absolute; inset: 0; }
+.slideshowPaint { position: absolute; inset: 0; z-index: 1; }
+.image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }

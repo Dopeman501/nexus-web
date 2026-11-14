@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="756" viewBox="0 0 1680 756">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#190f39"/><stop offset="1" stop-color="#613d81"/></linearGradient><linearGradient id="ground" x2="0" y2="1"><stop stop-color="#483965"/><stop offset="1" stop-color="#181c38"/></linearGradient></defs>
+<path fill="url(#sky)" d="M0 0h1680v756H0z"/><circle cx="365" cy="225" r="89" fill="#ddd1ef"/><circle cx="400" cy="196" r="83" fill="#241544"/>
+<g fill="#e3d6f4"><circle cx="110" cy="180" r="2"/><circle cx="620" cy="90" r="3"/><circle cx="880" cy="180" r="2"/><circle cx="1280" cy="140" r="3"/><circle cx="1460" cy="80" r="2"/><circle cx="1010" cy="290" r="2"/></g>
+<path fill="#282746" d="m0 555 230-90 190 58 210-243 250 255 170-120 290 160 130-228 210 195v214H0z"/>
+<path fill="#111d35" d="m0 552 220-35 160 72 320-110 240 89 360-60 380 60v188H0z"/>
+<path fill="url(#ground)" d="M0 588h1680v168H0z"/><path fill="#8777a5" d="m650 588 70 0 300 168H740l-130-58 115-70z"/>
+<g fill="#131e36"><path d="m130 380-70 200h140zm0 60-100 200h200zM270 450l-60 170h120zm0 50-100 205h200zM1450 380l-70 200h140zm0 60-100 200h200zM1550 430l-75 205h150zm0 60-95 235h190z"/></g>
+<text x="80" y="95" fill="#e1d8ef" font-family="sans-serif" font-size="22" letter-spacing="8">JUNGLE NEXUS / NIGHT</text>
+</svg>

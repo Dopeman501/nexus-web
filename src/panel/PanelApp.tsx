@@ -139,6 +139,12 @@ import { inferSurfaceFromViewport } from './device/inferSurface';
 import { isLocalPanelClient, panelAudioReactiveAllowed } from './background/panelAudio';
 import { useAudioTrigger } from './background/useAudioTrigger';
 import { AudioTriggerBackgroundLayer } from './background/AudioTriggerBackgroundLayer';
+import { useBackgroundPictureTransition } from './background/backgroundPictureTransition';
+import { useBackgroundTransitionCycle } from './background/transitions/useBackgroundTransitionCycle';
+import { resolveAudioTriggerBeatTransition, resolveSharedBackgroundTransitions } from './background/transitions/settings';
+import { useBackgroundTransitionPreview } from './background/useBackgroundTransitionPreview';
+import { BackgroundTransitionPreview } from './background/BackgroundTransitionPreview';
+import { d215BackgroundTheme } from './d215/d215PanelBackground';
 import { useAudioTriggerPreview } from './background/useAudioTriggerPreview';
 import { panelSystemFontsAvailable } from './theme/panelFont';
 import { PanelBackgroundShader } from './background/PanelBackgroundShader';
@@ -1324,6 +1330,34 @@ export function PanelContent({
   const triggeredBackground = useAudioTrigger(effectiveTheme.backgroundAudioTrigger,
     audioPreviewAllowed && backgroundVisible && !audioPreview, deviceId ?? null);
   const audioBackground = audioPreview ?? triggeredBackground;
+  const transitionCycle = useBackgroundTransitionCycle(deviceId ?? '', resolveSharedBackgroundTransitions(effectiveTheme));
+  const transitionPreview = useBackgroundTransitionPreview(deviceId,
+    !screenHidden && !focusStaticMode && wsConnected && isLocalPanelClient());
+  const transitionPreviewActive = transitionPreview.frame !== null;
+  const audioPictureTheme = audioBackground ? d215BackgroundTheme(audioBackground) : null;
+  const pictureSelectionKey = audioBackground
+    ? JSON.stringify([audioPreview ? 'preview' : 'rhythm', audioBackground])
+    : JSON.stringify(['normal', effectiveTheme.backgroundMode, effectiveTheme.backgroundMediaId,
+      effectiveTheme.backgroundMediaType, effectiveTheme.backgroundMediaAlpha, effectiveTheme.backgroundSlideshow,
+      effectiveTheme.backgroundEffect, effectiveTheme.backgroundTemplate, effectiveTheme.backgroundEffectState, panelSolidColor]);
+  const pictureTransition = useBackgroundPictureTransition({
+    ownerKey: deviceId ?? '', settings: transitionCycle.transition, chooseTransition: transitionCycle.chooseTransition,
+    beatSettings: resolveAudioTriggerBeatTransition(effectiveTheme), effectsAvailable: transitionCycle.effectsAvailable,
+    enabled: showBackgroundLayers && !backgroundCovered && !focusStaticMode && !screenHidden && wsConnected && !transitionPreviewActive,
+    selection: {
+      key: pictureSelectionKey, channel: audioBackground ? 'audio' : 'normal',
+      origin: audioBackground ? audioPreview ? 'preview' : 'rhythm' : 'normal',
+      eligible: audioPictureTheme
+        ? audioPictureTheme.backgroundMode === 'solid' || audioPictureTheme.backgroundMode === 'shader'
+          || (audioPictureTheme.backgroundMode === 'media' && !!audioPictureTheme.backgroundMediaType
+            && !audioPictureTheme.backgroundMediaAlpha && !!audioPictureTheme.backgroundMediaId)
+        : effectiveTheme.backgroundMode === 'solid' || effectiveTheme.backgroundMode === 'shader' || mediaShowsSolid
+          || (effectiveTheme.backgroundMode === 'media' && (effectiveTheme.backgroundSlideshow
+            || (!!effectiveTheme.backgroundMediaType && !effectiveTheme.backgroundMediaAlpha))),
+      opacity: audioPictureTheme?.backgroundOpacity ?? effectiveTheme.backgroundOpacity,
+      frost: audioPictureTheme?.backgroundFrost ?? 0,
+    },
+  });
   useEffect(() => {
     if (simulator) onSimulatorBackgroundCovered?.(backgroundCovered);
   }, [simulator, backgroundCovered, onSimulatorBackgroundCovered]);
@@ -2566,7 +2600,9 @@ export function PanelContent({
       >
         {showWallpaperLayer && <PanelBackgroundDesktop opacity={effectiveTheme.backgroundOpacity} />}
         {audioBackground && <AudioTriggerBackgroundLayer background={audioBackground} deviceId={deviceId}
-          themeMode={resolvedThemeMode} surface={surface} fullRes={simulator} />}
+          themeMode={resolvedThemeMode} surface={surface} fullRes={simulator}
+          onMediaReady={pictureTransition.captureEnabled ? pictureTransition.onMediaReady : undefined}
+          onVideoRetiring={pictureTransition.onVideoRetiring} onFrameRetiring={pictureTransition.onFrameRetiring} />}
         {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'shader' && (
           <PanelBackgroundShader
             effect={effectiveTheme.backgroundEffect}
@@ -2576,6 +2612,8 @@ export function PanelContent({
             surface={surface}
             fullRes={simulator}
             covered={backgroundCovered}
+            onMediaReady={pictureTransition.captureEnabled ? pictureTransition.onMediaReady : undefined}
+            onFrameRetiring={pictureTransition.onFrameRetiring}
           />
         )}
         {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'media' && deviceId && (
@@ -2588,7 +2626,11 @@ export function PanelContent({
               finishVideos={effectiveTheme.backgroundSlideshowFinishVideos}
               order={effectiveTheme.backgroundMediaOrder}
               opacity={effectiveTheme.backgroundOpacity}
-              covered={backgroundCovered}
+              covered={backgroundCovered || transitionPreviewActive}
+              transition={transitionCycle.transition}
+              chooseTransition={transitionCycle.chooseTransition}
+              onMediaReady={pictureTransition.onMediaReady}
+              onVideoRetiring={pictureTransition.onVideoRetiring}
             />
           ) : effectiveTheme.backgroundMediaId && effectiveTheme.backgroundMediaType && failedMediaId !== effectiveTheme.backgroundMediaId ? (
             <PanelBackgroundMedia
@@ -2598,14 +2640,21 @@ export function PanelContent({
               alpha={effectiveTheme.backgroundMediaAlpha}
               opacity={effectiveTheme.backgroundOpacity}
               covered={backgroundCovered}
+              onMediaReady={pictureTransition.onMediaReady}
+              onVideoRetiring={pictureTransition.onVideoRetiring}
               onLoaded={() => { mediaRetryRef.current = 0; }}
               onFailed={() => setFailedMediaId(effectiveTheme.backgroundMediaId ?? null)}
             />
-          ) : <PanelBackgroundSolid opacity={effectiveTheme.backgroundOpacity} />
+          ) : <PanelBackgroundSolid opacity={effectiveTheme.backgroundOpacity} color={panelSolidColor}
+            onMediaReady={pictureTransition.captureEnabled ? pictureTransition.onMediaReady : undefined}
+            onFrameRetiring={pictureTransition.onFrameRetiring} />
         )}
         {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'solid' && (
-          <PanelBackgroundSolid opacity={effectiveTheme.backgroundOpacity} />
+          <PanelBackgroundSolid opacity={effectiveTheme.backgroundOpacity} color={panelSolidColor}
+            onMediaReady={pictureTransition.captureEnabled ? pictureTransition.onMediaReady : undefined}
+            onFrameRetiring={pictureTransition.onFrameRetiring} />
         )}
+        {pictureTransition.overlay}
         {!audioBackground && backgroundFrost > 0 && (
           <div
             className={styles.backgroundFrost}
@@ -2841,6 +2890,8 @@ export function PanelContent({
         );
       })()}
 
+      {transitionPreview.frame && <BackgroundTransitionPreview key={transitionPreview.frame.preview!.previewId}
+        frame={transitionPreview.frame} onComplete={transitionPreview.complete} />}
       <PanelScreenSleep asleep={screenAsleep} onSleepFaded={() => setScreenHidden(true)} onWakeStart={() => setScreenHidden(false)} onWake={() => setScreenAsleep(false)} />
 
       {sheetMode && (
@@ -2888,6 +2939,8 @@ export function PanelContent({
           onThemeBackgroundMediaCommit={panelTheme.commitBackgroundMedia}
           onThemeBackgroundSlideshowCommit={panelTheme.commitBackgroundSlideshow}
           onThemeBackgroundAudioTriggerCommit={panelTheme.commitBackgroundAudioTrigger}
+          onThemeBackgroundTransitionsCommit={panelTheme.commitBackgroundTransitions}
+          onThemeBackgroundAudioTriggerBeatTransitionCommit={panelTheme.commitBackgroundAudioTriggerBeatTransition}
           onThemeBackgroundMediaOrderCommit={panelTheme.commitBackgroundMediaOrder}
           showMediaTab={surface !== 'desktop' && !isTunnelActive()}
           showSystemFonts={panelSystemFontsAvailable(glassSurface) && isLocalPanelClient()}

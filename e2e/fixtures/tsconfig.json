@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.app.json",
+  "compilerOptions": { "types": ["vite/client"] },
+  "include": ["./transition-engines/main.ts", "./video-core/main.ts", "../../src/**/*.d.ts"]
+}

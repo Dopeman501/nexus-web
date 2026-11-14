@@ -1,0 +1,162 @@
+{
+  "repository": "codrops/SlideshowAnimations",
+  "commit": "d05e45915cf947e85e651296f84ab2b5364056df",
+  "files": [
+    {
+      "path": "js/demo1/slideshow.js",
+      "sha": "e91cd9c666fc17177e9d3fd8e5e5867a99038b02"
+    },
+    {
+      "path": "js/demo2/slideshow.js",
+      "sha": "e9331e95236fad6d61de8576b59146a497a18b15"
+    },
+    {
+      "path": "js/demo3/slideshow.js",
+      "sha": "17345ce0efea678323b2c4ff792f78902b64c322"
+    },
+    {
+      "path": "js/demo4/slideshow.js",
+      "sha": "afa6c08211f7064ea18fe9fa517da1ce3cb74f72"
+    },
+    {
+      "path": "js/demo5/slideshow.js",
+      "sha": "9407f98e020d9c4c3e7227eb044487e0e97d3bd1"
+    },
+    {
+      "path": "js/demo6/slideshow.js",
+      "sha": "a0e6f038da03e53d4170a7dc9d93af79f74cb01c"
+    },
+    {
+      "path": "js/demo7/slideshow.js",
+      "sha": "f6e4f0fa7907e8684fb14ed35e9db051be9ee449"
+    },
+    {
+      "path": "js/demo8/slideshow.js",
+      "sha": "2c36142b8593d5640f24ba23c4129b242abef533"
+    },
+    {
+      "path": "js/demo9/slideshow.js",
+      "sha": "c290d35f7a1b46256ac265f7c8ef4d8227a1be2d"
+    },
+    {
+      "path": "js/demo10/slideshow.js",
+      "sha": "61eed3712511a5e0b159ba9fd6a3e3fbec389526"
+    },
+    {
+      "path": "js/demo11/slideshow.js",
+      "sha": "2aeb370fdde636ffd807984992c2cc74a3f834d6"
+    },
+    {
+      "path": "js/demo12/slideshow.js",
+      "sha": "36b21fd7b360c33d3c6b7eff0a9a147e2bb85288"
+    },
+    {
+      "path": "js/demo13/slideshow.js",
+      "sha": "345a3dd7c003184bb3bca1010394595bcf5c5e89"
+    },
+    {
+      "path": "js/demo14/slideshow.js",
+      "sha": "dac0745b6386359aa24eade784b57724c996b6b7"
+    },
+    {
+      "path": "js/demo15/slideshow.js",
+      "sha": "143e6c1572894f90fcd8c26dd175076d99dca1ab"
+    },
+    {
+      "path": "js/demo16/slideshow.js",
+      "sha": "f36c14f0e3a0bf176fd66219a759cf0746dab037"
+    },
+    {
+      "path": "js/demo17/slideshow.js",
+      "sha": "6e32d8b785d4bf0606aaeaeea1faca21bbe7a5c3"
+    },
+    {
+      "path": "js/demo18/slideshow.js",
+      "sha": "67b422dbf3bc389998c88bfaaeea484f84ab2090"
+    },
+    {
+      "path": "js/demo19/slideshow.js",
+      "sha": "b2c78e53ec4081e05f2ddbcd3f5da6c56c4b4761"
+    },
+    {
+      "path": "js/demo20/slideshow.js",
+      "sha": "58a4683a7354c09abb61d0b7f528a468ae34aee8"
+    },
+    {
+      "path": "js/demo21/slideshow.js",
+      "sha": "3b1cec7df871737889ba05e5d794c5b6325bd7ed"
+    },
+    {
+      "path": "js/demo22/slideshow.js",
+      "sha": "72dace26a555e186ffbf8f495b3cf9ead88dfdb0"
+    },
+    {
+      "path": "js/demo23/slideshow.js",
+      "sha": "34b05180bb31bd62652f4580c8fe074636acf557"
+    },
+    {
+      "path": "js/demo24/slideshow.js",
+      "sha": "b0ed9916938f538ab464bd150a684d15a8a91bf1"
+    },
+    {
+      "path": "js/demo25/slideshow.js",
+      "sha": "c2c435a72beeb6a20ab6aa6b374c86fcb27aac28"
+    },
+    {
+      "path": "js/demo26/slideshow.js",
+      "sha": "1f5129a02c515e6b2c1636bfa8162fa233e7e82d"
+    },
+    {
+      "path": "js/demo27/slideshow.js",
+      "sha": "00374cdcca24b3160c46f6006685eb6f7caee17a"
+    },
+    {
+      "path": "js/demo28/slideshow.js",
+      "sha": "6dd6d7b730d8f4646fefe47374db700303c15472"
+    },
+    {
+      "path": "js/demo29/slideshow.js",
+      "sha": "8f720a3e7fb6a6d934c3d0bc1cbc25c937872e22"
+    },
+    {
+      "path": "js/demo30/slideshow.js",
+      "sha": "7d8bc9831371d2ea561e50cc38d3e32848c629cb"
+    },
+    {
+      "path": "js/demo31/slideshow.js",
+      "sha": "1e02bdf4352bd9db4f1784fde1ddbfcbd3d41c5e"
+    },
+    {
+      "path": "js/demo32/slideshow.js",
+      "sha": "e4f0712d4335fed865ba79fbb9fd37bfa169f154"
+    },
+    {
+      "path": "js/utils.js",
+      "sha": "7a5eda2e2482badaa0b1efd386ce3daebffaecf4"
+    },
+    {
+      "path": "js/webgl/Stage.js",
+      "sha": "0ed344049e1109e23e2656f410f0ea13f11086f5"
+    },
+    {
+      "path": "js/demo22/stir.js",
+      "sha": "5a8192a46eedf0f3bbcb05bc4801c024527084d1"
+    },
+    {
+      "path": "js/demo22/stirring.worker.js",
+      "sha": "e8e5f5beccfde0b47198324dc5a80055a0dd4ba4"
+    },
+    {
+      "path": "js/gsap.min.js",
+      "sha": "3c73d761a9a7dbd166549451ba7afd62dc7121d0"
+    },
+    {
+      "path": "css/base.css",
+      "sha": "991b893ca02d332f5bca8e54abb2b10fa9c0e2e7"
+    },
+    {
+      "path": "LICENSE",
+      "sha": "a5ef20beccc243ab7bfbc164294f0053333032a8"
+    }
+  ]
+}

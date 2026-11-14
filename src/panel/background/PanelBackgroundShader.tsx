@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react';
 import { useShaderRenderer } from '../../hooks/useShaderRenderer';
 import { useShaderParams } from '../../hooks/useShaderParams';
 import { SensorSignalProvider } from '../../hooks/SensorSignalProvider';
@@ -18,6 +18,8 @@ import {
 import { usePanelAudioReactive } from './panelAudio';
 import styles from '../PanelApp.module.scss';
 import { usePanelGlassSurface } from '../widgets/common/PanelGlassSurfaceContext';
+import { createShaderFrameBridge } from './shaderFrameBridge';
+import type { PictureSource } from './transitions/source';
 
 interface PanelBackgroundShaderProps {
   effect: string;
@@ -34,6 +36,9 @@ interface PanelBackgroundShaderProps {
   // An opaque widget hides the whole background: stop drawing, keep the last
   // frame and the compiled program so uncovering resumes on the next frame.
   covered?: boolean;
+  // Opt-in synchronous mirrors for full-frame transitions; no capture for other callers.
+  onMediaReady?: (source: PictureSource | null) => void;
+  onFrameRetiring?: (source: HTMLCanvasElement) => void;
 }
 
 // The provider stays mounted and is toggled through `enabled`: useShaderRenderer
@@ -51,7 +56,7 @@ export function PanelBackgroundShader(props: PanelBackgroundShaderProps) {
   );
 }
 
-function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, surface, fullRes, covered = false }: PanelBackgroundShaderProps) {
+function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, surface, fullRes, covered = false, onMediaReady, onFrameRetiring }: PanelBackgroundShaderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioAllowed = usePanelAudioReactive(surface);
   const drawing = resolveBackgroundDrawing(
@@ -67,9 +72,31 @@ function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, su
   // picked up next frame. Initialize with the same normalized inputs so the
   // first frame doesn't render stale state.
   const stateRef = useRef(drawnState ?? panelBackgroundState(normalizedEffect, normalizedTemplate));
-  useEffect(() => {
+  useLayoutEffect(() => {
     stateRef.current = drawnState ?? panelBackgroundState(normalizedEffect, normalizedTemplate);
   }, [normalizedEffect, normalizedTemplate, drawnState]);
+  const sourceKey = JSON.stringify([normalizedEffect, normalizedTemplate, drawnState]);
+  const captureEnabled = !!onMediaReady;
+  const callbacksRef = useRef({ onMediaReady, onFrameRetiring });
+  callbacksRef.current = { onMediaReady, onFrameRetiring };
+  const frameBridgeRef = useRef<ReturnType<typeof createShaderFrameBridge> | null>(null);
+  const drawFrame = useMemo(() => (canvas: HTMLCanvasElement) => frameBridgeRef.current?.draw(canvas), []);
+  const onDrawRef = useRef<((canvas: HTMLCanvasElement) => void) | null>(null);
+  onDrawRef.current = captureEnabled ? drawFrame : null;
+  useLayoutEffect(() => {
+    const callbacks = callbacksRef.current;
+    if (!captureEnabled || !callbacks.onMediaReady) return;
+    const bridge = createShaderFrameBridge(callbacks.onMediaReady, callbacks.onFrameRetiring);
+    frameBridgeRef.current = bridge;
+    return () => {
+      // Retire before useShaderRenderer's passive cleanup releases the old GPU source.
+      if (frameBridgeRef.current === bridge) frameBridgeRef.current = null;
+      bridge.dispose();
+    };
+  }, [captureEnabled, sourceKey]);
+  useLayoutEffect(() => {
+    if (onMediaReady) frameBridgeRef.current?.setCallbacks(onMediaReady, onFrameRetiring);
+  }, [onMediaReady, onFrameRetiring]);
   // The Q-series AIO panel GPU can't hold frame rate on heavy shaders at native
   // res, so cap its backing store to half DPR. q60 is the only Q-series surface
   // (Q60 + Q80 share the LCD and both infer to it). fullRes lifts the cap for
@@ -78,7 +105,7 @@ function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, su
   visibleRef.current = !covered;
   const glass = usePanelGlassSurface(surface);
   const renderOptions = useMemo(() => (
-    { maxDevicePixelRatio: glass === 'q60' && !fullRes ? 0.5 : 1, visibleRef }
+    { maxDevicePixelRatio: glass === 'q60' && !fullRes ? 0.5 : 1, visibleRef, onDrawRef }
   ), [glass, fullRes]);
   // Subscribing is what makes the service capture audio, so only an audio
   // effect that is on screen holds the subscription.

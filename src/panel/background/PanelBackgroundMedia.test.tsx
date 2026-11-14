@@ -13,6 +13,30 @@ afterEach(() => {
 });
 
 describe('PanelBackgroundMedia', () => {
+  it('publishes decoded opaque stills and keeps retired image sources immutable across changes', () => {
+    const frames = vi.fn();
+    const view = render(<PanelBackgroundMedia id="first" deviceId="d" type="static" opacity={1} onImageReady={frames} />);
+    const first = view.container.querySelector('img')!;
+    fireEvent.load(first);
+    expect(frames).toHaveBeenCalledWith(first);
+    view.rerender(<PanelBackgroundMedia id="second" deviceId="d" type="static" opacity={1} onImageReady={frames} />);
+    expect(view.container.querySelector('img')).not.toBe(first);
+    expect(first.getAttribute('src')).toBe('/media/d/first');
+  });
+
+  it('invalidates picture readiness for alpha and video sources', () => {
+    const frames = vi.fn();
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+    const view = render(<PanelBackgroundMedia id="alpha" deviceId="d" type="static" alpha opacity={1} onImageReady={frames} />);
+    fireEvent.load(view.container.querySelector('img')!);
+    expect(frames).toHaveBeenLastCalledWith(null);
+    view.rerender(<PanelBackgroundMedia id="video" deviceId="d" type="animated" opacity={1} onImageReady={frames} />);
+    fireEvent.canPlay(view.container.querySelector('video')!);
+    expect(frames).toHaveBeenLastCalledWith(null);
+  });
+
   it('releases the video decoder on unmount', () => {
     const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
     const load = vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
@@ -53,12 +77,14 @@ describe('PanelBackgroundMedia', () => {
     const { container, rerender } = render(<PanelBackgroundMedia id="v1" deviceId="d" type="animated" opacity={1} />);
     const el = container.querySelector('video') as HTMLVideoElement;
     rerender(<PanelBackgroundMedia id="v2" deviceId="d" type="animated" opacity={1} />);
-    expect(container.querySelector('video')).toBe(el);
-    expect(el.getAttribute('src')).toBe('/media/d/v2');
+    expect(container.querySelector('video')).not.toBe(el);
+    expect(el.hasAttribute('src')).toBe(false);
+    const next = container.querySelector('video')!;
+    expect(next.getAttribute('src')).toBe('/media/d/v2');
     load.mockClear();
     rerender(<PanelBackgroundMedia id="i" deviceId="d" type="static" opacity={1} />);
     expect(container.querySelector('video')).toBeNull();
-    expect(el.hasAttribute('src')).toBe(false);
+    expect(next.hasAttribute('src')).toBe(false);
     expect(load).toHaveBeenCalledTimes(1);
   });
 

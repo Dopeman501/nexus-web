@@ -14,6 +14,7 @@ import { slotLayoutLabelKey, slotLayoutOptionsForSize, slotLayoutPatch, resolved
 import { PanelWidgetCatalog } from './PanelWidgetCatalog';
 import { PanelHostNameSetting } from './PanelHostNameSetting';
 import type { PanelBackdrop } from '../background/panelBackground';
+import type { AudioTriggerBeatTransitionSettings, SharedBackgroundTransitionSettings } from '../background/transitions/settings';
 import { PanelThemeSettings, type PanelSlideshowSettings, type PanelThemeSettingsSection, type ResolvedPanelThemeMode } from './PanelThemeSettings';
 import type { TextColorMode } from '../theme/textColor';
 import type { PanelFont } from '../theme/panelFont';
@@ -78,6 +79,8 @@ export function PanelEditorSheet({
   onThemeBackgroundMediaCommit,
   onThemeBackgroundSlideshowCommit,
   onThemeBackgroundAudioTriggerCommit,
+  onThemeBackgroundTransitionsCommit,
+  onThemeBackgroundAudioTriggerBeatTransitionCommit,
   onThemeBackgroundMediaOrderCommit,
   onThemeBackgroundFrostPreview,
   onThemeBackgroundFrostCommit,
@@ -168,6 +171,8 @@ export function PanelEditorSheet({
   onThemeBackgroundMediaCommit: (mediaId: string | null, type: 'static' | 'animated' | null) => void;
   onThemeBackgroundSlideshowCommit: (patch: Partial<PanelSlideshowSettings>) => void;
   onThemeBackgroundAudioTriggerCommit?: (settings: AudioTriggerSettings) => void;
+  onThemeBackgroundTransitionsCommit?: (settings: SharedBackgroundTransitionSettings) => void;
+  onThemeBackgroundAudioTriggerBeatTransitionCommit?: (settings: AudioTriggerBeatTransitionSettings) => void;
   onThemeBackgroundMediaOrderCommit: (ids: string[]) => void;
   onThemeBackgroundFrostPreview: (percent: number) => void;
   onThemeBackgroundFrostCommit: (percent: number) => void;
@@ -487,6 +492,8 @@ export function PanelEditorSheet({
               onBackgroundMediaCommit={onThemeBackgroundMediaCommit}
               onBackgroundSlideshowCommit={onThemeBackgroundSlideshowCommit}
               onBackgroundAudioTriggerCommit={onThemeBackgroundAudioTriggerCommit}
+              onBackgroundTransitionsCommit={onThemeBackgroundTransitionsCommit}
+              onBackgroundAudioTriggerBeatTransitionCommit={onThemeBackgroundAudioTriggerBeatTransitionCommit}
               onBackgroundMediaOrderCommit={onThemeBackgroundMediaOrderCommit}
               onBackgroundFrostPreview={onThemeBackgroundFrostPreview}
               onBackgroundFrostCommit={onThemeBackgroundFrostCommit}

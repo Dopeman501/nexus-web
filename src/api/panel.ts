@@ -4,6 +4,7 @@ import { deriveDeviceLabel } from '../lib/platform';
 import { KRAKEN_PANEL_DPI, LEGACY_KRAKEN_SURFACE, NZXT_KRAKEN_FAMILY, type PanelConfigValue, type PanelLayout, type PanelSurface, type PanelWidgetSizeMode } from '../panel/types';
 import type { PresetApp, PresetAppConflict, SetPresetAppsResult } from './lighting';
 import type { AudioTriggerSettings } from '../panel/background/audioTrigger';
+import type { AudioTriggerBeatTransitionSettings, BackgroundTransitionSettings, SharedBackgroundTransitionSettings } from '../panel/background/transitions/settings';
 
 // Init for the direct localhost fetches below. The phone-session cookie only
 // ever rides a same-origin request; cross-origin from the website the service
@@ -88,7 +89,11 @@ export interface DesktopImportDto {
 }
 
 export interface PanelDeviceRecord {
+  backgroundAudioTriggerBeatTransition?: AudioTriggerBeatTransitionSettings | null;
+  backgroundTransitions?: SharedBackgroundTransitionSettings | null;
   backgroundAudioTrigger?: AudioTriggerSettings | null;
+  backgroundMediaTransition?: BackgroundTransitionSettings | null;
+  backgroundAudioTriggerTransition?: BackgroundTransitionSettings | null;
   id: string;
   displayName: string;
   layout?: PanelLayout;
@@ -223,7 +228,11 @@ export interface PanelDeviceRecord {
 }
 
 export interface PanelDevicePatch {
+  backgroundAudioTriggerBeatTransition?: AudioTriggerBeatTransitionSettings;
+  backgroundTransitions?: SharedBackgroundTransitionSettings;
   backgroundAudioTrigger?: AudioTriggerSettings;
+  backgroundMediaTransition?: BackgroundTransitionSettings;
+  backgroundAudioTriggerTransition?: BackgroundTransitionSettings;
   displayName?: string;
   layout?: PanelLayout;
   themeMode?: string | null;

@@ -66,6 +66,9 @@ export function useShaderRenderer(
     sensorRef?: React.RefObject<SensorSignal | null>;
     // Swing a sensor that does not resolve slowly instead, so an authoring preview moves without the hardware.
     sensorSweep?: boolean;
+    // Synchronous borrowed frame access, before WebGL clears its drawing buffer.
+    // Ref changes must never fetch/compile the shader or create another render clock.
+    onDrawRef?: React.RefObject<((canvas: HTMLCanvasElement) => void) | null>;
   },
   // When true, u_time is held at the value it had the instant this flipped
   // true, so the preview freezes on the same frame the server-side lighting
@@ -102,6 +105,9 @@ export function useShaderRenderer(
   // shader fetch/compile in the effect below.
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const drawObserverRef = useRef(options?.onDrawRef);
+  drawObserverRef.current = options?.onDrawRef;
+  const failedDrawObserverRef = useRef<((canvas: HTMLCanvasElement) => void) | null>(null);
   // Non-null while paused: the u_time value frozen at the moment pause
   // engaged. Cleared on resume so time picks back up from Date.now().
   const frozenTimeRef = useRef<number | null>(null);
@@ -390,6 +396,16 @@ export function useShaderRenderer(
         g.bindVertexArray(vaoRef.current);
         g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
         drawnFrameTs.set(c, ts);
+        const onDraw = drawObserverRef.current?.current;
+        if (!onDraw) failedDrawObserverRef.current = null;
+        else if (failedDrawObserverRef.current !== onDraw) {
+          try { onDraw(c); }
+          catch (captureError) {
+            // Capture is optional: an invalid receiver cannot stop the shader loop.
+            failedDrawObserverRef.current = onDraw;
+            console.warn('Shader frame observer unavailable.', captureError);
+          }
+        }
 
         if (firstFrame) { firstFrame = false; setReady(true); }
         rafRef.current = requestAnimationFrame(render);

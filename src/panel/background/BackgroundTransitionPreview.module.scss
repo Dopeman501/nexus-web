@@ -1,0 +1,2 @@
+.preview { position: fixed; inset: 0; z-index: calc(var(--z-modal, 1000) - 1); pointer-events: none; overflow: hidden; background: #0c1020; }
+.endpoint { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: cover; }

@@ -39,6 +39,9 @@ import type { PanelSlideshowSettings, PanelThemeSettingsState, ResolvedPanelThem
 import { isSingleWidgetSurface, panelLayoutSurface, surfaceDefaultsToAnimatedBackground, type PanelSurface } from '../types';
 import { supportsDesktopWallpaper } from '../device/wiredPanel';
 import { normalizeAudioTrigger, type AudioTriggerSettings } from '../background/audioTrigger';
+import { DEFAULT_SHARED_TRANSITION, normalizeAudioTriggerBeatTransition, normalizeBackgroundTransition, normalizeSharedBackgroundTransitions, resolveAudioTriggerBeatTransition, resolveSharedBackgroundTransitions,
+  type AudioTriggerBeatTransitionSettings, type BackgroundTransitionSettings, type SharedBackgroundTransitionSettings } from '../background/transitions/settings';
+import { audioTriggerBeatTransitionWriter, backgroundTransitionWriter, sharedBackgroundTransitionsWriter } from './backgroundTransitionPersistence';
 
 export type PanelThemeState = PanelThemeSettingsState;
 
@@ -234,6 +237,10 @@ export function buildPanelTheme(prefs: Preferences | null, record: PanelDeviceRe
     backgroundSlideshowFinishVideos: r?.backgroundMediaFinishVideos !== false,
     backgroundMediaOrder: normalizePanelBackgroundMediaOrder(r?.backgroundMediaOrder),
     backgroundAudioTrigger: normalizeAudioTrigger(r?.backgroundAudioTrigger),
+    backgroundTransitions: resolveSharedBackgroundTransitions(r),
+    backgroundAudioTriggerBeatTransition: resolveAudioTriggerBeatTransition(r),
+    backgroundMediaTransition: normalizeBackgroundTransition(r?.backgroundMediaTransition),
+    backgroundAudioTriggerTransition: normalizeBackgroundTransition(r?.backgroundAudioTriggerTransition),
     backgroundFrost: normalizePanelBackgroundFrost(r?.backgroundFrostLevel),
     immersiveBackdrop: r?.immersiveBackdrop !== false,
     widgetOpacity: r?.widgetOpacity == null && single ? 0 : normalizePanelWidgetOpacity(r?.widgetOpacity),
@@ -375,14 +382,38 @@ export function usePanelTheme(
   // Bind the destination when the writer is created: completed edits drain even
   // after navigation, while later edits use the next device's independent queue.
   const audioTriggerPersistence = useMemo(() => audioTriggerSettingsWriter(deviceId, persist), [deviceId, persist]);
+  const mediaTransitionPersistence = useMemo(() => backgroundTransitionWriter(deviceId, persist, 'backgroundMediaTransition'), [deviceId, persist]);
+  const audioTransitionPersistence = useMemo(() => backgroundTransitionWriter(deviceId, persist, 'backgroundAudioTriggerTransition'), [deviceId, persist]);
+  const sharedTransitionPersistence = useMemo(() => sharedBackgroundTransitionsWriter(deviceId, persist), [deviceId, persist]);
+  const beatTransitionPersistence = useMemo(() => audioTriggerBeatTransitionWriter(deviceId, persist), [deviceId, persist]);
+  const retainedBeatTransition = useMemo(() => ({ deviceId, persist,
+    value: null as AudioTriggerBeatTransitionSettings | null }), [deviceId, persist]);
   useEffect(() => {
     if (!recordLoaded) return;
     const hydrated = buildPanelTheme(prefs, record);
     const localAudioTrigger = audioTriggerPersistence.localSettings();
+    const localMediaTransition = mediaTransitionPersistence.localSettings();
+    const localAudioTransition = audioTransitionPersistence.localSettings();
+    const localSharedTransition = sharedTransitionPersistence.localSettings();
+    const localBeatTransition = beatTransitionPersistence.localSettings();
+    // Native freezes the inferred legacy beat policy on the first main edit.
+    // Until that reply arrives, an older record must not infer from a different main value.
+    const legacyMainSavePending = !!localSharedTransition && record?.backgroundAudioTriggerBeatTransition == null;
+    const guardedBeatTransition = localBeatTransition
+      ?? (legacyMainSavePending ? retainedBeatTransition.value : null);
+    if (!legacyMainSavePending && !localBeatTransition) {
+      retainedBeatTransition.value = hydrated.backgroundAudioTriggerBeatTransition ?? null;
+    }
     // Earlier writes can echo while a newer selected snapshot is still saving.
     // Keep that snapshot stable without suppressing unrelated record changes.
-    setTheme(localAudioTrigger ? { ...hydrated, backgroundAudioTrigger: localAudioTrigger } : hydrated);
-  }, [prefs, record, recordLoaded, audioTriggerPersistence]);
+    setTheme({ ...hydrated,
+      ...(localAudioTrigger ? { backgroundAudioTrigger: localAudioTrigger } : {}),
+      ...(localMediaTransition ? { backgroundMediaTransition: localMediaTransition } : {}),
+      ...(localAudioTransition ? { backgroundAudioTriggerTransition: localAudioTransition } : {}),
+      ...(localSharedTransition ? { backgroundTransitions: localSharedTransition } : {}),
+      ...(guardedBeatTransition ? { backgroundAudioTriggerBeatTransition: guardedBeatTransition } : {}),
+    });
+  }, [prefs, record, recordLoaded, audioTriggerPersistence, mediaTransitionPersistence, audioTransitionPersistence, sharedTransitionPersistence, beatTransitionPersistence, retainedBeatTransition]);
 
   // `persist=false` (e.g. simulator) or a missing deviceId keeps changes
   // local-only (preview reacts, no write). Writes go to THIS panel's device
@@ -539,6 +570,41 @@ export function usePanelTheme(
     audioTriggerPersistence.write(next);
   }, [audioTriggerPersistence]);
 
+  const commitBackgroundTransitions = useCallback((settings: SharedBackgroundTransitionSettings) => {
+    const next = normalizeSharedBackgroundTransitions(settings);
+    const beat = beatTransitionPersistence.localSettings() ?? retainedBeatTransition.value
+      ?? resolveAudioTriggerBeatTransition(themeRef.current);
+    retainedBeatTransition.value = beat;
+    setTheme(prev => ({ ...prev, backgroundTransitions: next,
+      backgroundAudioTriggerBeatTransition: prev.backgroundAudioTriggerBeatTransition ?? beat }));
+    sharedTransitionPersistence.write(next);
+  }, [sharedTransitionPersistence, beatTransitionPersistence, retainedBeatTransition]);
+
+  const commitBackgroundAudioTriggerBeatTransition = useCallback((settings: AudioTriggerBeatTransitionSettings) => {
+    const next = normalizeAudioTriggerBeatTransition(settings);
+    retainedBeatTransition.value = next;
+    const shared = resolveSharedBackgroundTransitions(themeRef.current);
+    // A selected effect is required, but enabling beat swaps never enables main transitions.
+    const seeded = next.enabled && shared.effects.length === 0
+      ? { ...shared, effects: [DEFAULT_SHARED_TRANSITION] } : null;
+    setTheme(prev => ({ ...prev, backgroundAudioTriggerBeatTransition: next,
+      ...(seeded ? { backgroundTransitions: seeded } : {}) }));
+    if (seeded) sharedTransitionPersistence.write(seeded);
+    beatTransitionPersistence.write(next);
+  }, [beatTransitionPersistence, sharedTransitionPersistence, retainedBeatTransition]);
+
+  const commitBackgroundMediaTransition = useCallback((settings: BackgroundTransitionSettings) => {
+    const next = normalizeBackgroundTransition(settings);
+    setTheme(prev => ({ ...prev, backgroundMediaTransition: next }));
+    mediaTransitionPersistence.write(next);
+  }, [mediaTransitionPersistence]);
+
+  const commitBackgroundAudioTriggerTransition = useCallback((settings: BackgroundTransitionSettings) => {
+    const next = normalizeBackgroundTransition(settings);
+    setTheme(prev => ({ ...prev, backgroundAudioTriggerTransition: next }));
+    audioTransitionPersistence.write(next);
+  }, [audioTransitionPersistence]);
+
   const commitBackgroundFrost = useCallback((percent: number) => {
     const next = normalizePanelBackgroundFrost(percent);
     setTheme(prev => ({ ...prev, backgroundFrost: next }));
@@ -625,6 +691,10 @@ export function usePanelTheme(
     commitBackgroundMedia,
     commitBackgroundSlideshow,
     commitBackgroundAudioTrigger,
+    commitBackgroundTransitions,
+    commitBackgroundAudioTriggerBeatTransition,
+    commitBackgroundMediaTransition,
+    commitBackgroundAudioTriggerTransition,
     commitBackgroundMediaOrder,
     previewBackgroundFrost: (percent: number) => setTheme(prev => (
       { ...prev, backgroundFrost: normalizePanelBackgroundFrost(percent) }

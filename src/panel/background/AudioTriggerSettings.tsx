@@ -14,6 +14,8 @@ import styles from './AudioTriggerSettings.module.scss';
 import { AudioTriggerMenuContent } from './AudioTriggerMenuContent';
 import type { PanelThemeSettingsProps } from '../editor/PanelThemeSettings';
 import { useAudioTriggerPreviewPublisher } from './useAudioTriggerPreviewPublisher';
+import { BeatTransitionControls } from './BeatTransitionControls';
+import type { AudioTriggerBeatTransitionSettings } from './transitions/settings';
 
 const DEFAULT_SETTINGS: AudioTriggerSettings = { enabled: false, intensity: 50, switchDelay: 1, shuffle: false, backgrounds: [] };
 const NEW_BACKGROUND: D215PanelBackground = { mode: 'solid', color: '#0f0f0f', colorLight: '#fafafa', opacity: 1, frost: 0, slideshow: false };
@@ -23,6 +25,8 @@ const BACKGROUND_SECTION = 'background';
 interface Props {
   value?: AudioTriggerSettings;
   onChange: (value: AudioTriggerSettings) => void;
+  beatTransition?: AudioTriggerBeatTransitionSettings;
+  onBeatTransitionChange?: (value: AudioTriggerBeatTransitionSettings) => void;
   themeMode: 'dark' | 'light';
   deviceId?: string | null;
   deviceAspect: number;
@@ -48,7 +52,7 @@ export function PanelAudioTriggerSettings(props: Props) {
   </>;
 }
 
-function AudioTriggerBackgrounds({ value, onChange, onClose, ...device }: Props & {
+function AudioTriggerBackgrounds({ value, onChange, beatTransition, onBeatTransitionChange, onClose, ...device }: Props & {
   value: AudioTriggerSettings;
   onClose: () => void;
 }) {
@@ -106,6 +110,7 @@ function AudioTriggerBackgrounds({ value, onChange, onClose, ...device }: Props 
     </header>
     <AudioTriggerMenuContent intensity={value.intensity} switchDelay={value.switchDelay} shuffle={value.shuffle}
       onChange={change} items={value.backgrounds} maximum={AUDIO_TRIGGER_MAX_BACKGROUNDS}
+      afterShuffleControls={onBeatTransitionChange && <BeatTransitionControls value={beatTransition} onChange={onBeatTransitionChange} />}
       editingIndex={editingIndex} canSave={canSave} onSave={save} autoSave
       onNew={() => { select(null); setDraft(NEW_BACKGROUND); }}
       onEdit={(background, index) => { setDraft(background); select({ index, source: JSON.stringify(background) }); }} onRemove={remove}
@@ -128,7 +133,7 @@ function AudioTriggerBackgrounds({ value, onChange, onClose, ...device }: Props 
 
 /** Reuses familiar controls; callers choose whether finished edits also persist. */
 export function AudioBackgroundEditor({ background, onChange, onCommit, themeMode, deviceId, deviceAspect, deviceW, deviceH, round,
-  hideBackgroundAppearanceControls, mediaPicker, hideSensorBindings, independentAudioPreview, staticEffect }: Omit<Props, 'value' | 'onChange'> & {
+  hideBackgroundAppearanceControls, mediaPicker, hideSensorBindings, independentAudioPreview, staticEffect }: Omit<Props, 'value' | 'onChange' | 'beatTransition' | 'onBeatTransitionChange'> & {
   background: D215PanelBackground;
   onChange: (background: D215PanelBackground) => void;
   onCommit?: (background: D215PanelBackground) => void;
