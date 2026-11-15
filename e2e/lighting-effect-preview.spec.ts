@@ -1,9 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { ANIMATE_EFFECTS, BASE_DEFAULTS, type EffectTemplateBundle } from '../src/types/lighting';
 import type { LightingDevice, Pin } from '../src/api/lighting';
 import type { LightingAudioTriggerSettings } from '../src/api/lightingAudioTrigger';
+import type { KeyReaction } from '../src/api/keyReactive';
 
 const THUMB_COLOURS: Record<string, [number, number, number]> = {
   fire: [230, 30, 20], rainbow: [20, 220, 30], ball: [20, 30, 230], wave: [210, 200, 20],
@@ -29,6 +30,7 @@ interface FixtureOptions {
   replayPath?: string;
   stream?: boolean;
   customSources?: string;
+  coreKeyboard?: boolean;
 }
 
 /** A stable blue-dot global canvas; device pins deliberately do not change this stream. */
@@ -47,7 +49,7 @@ function globalFrame() {
 
 /** Every request, including sockets and replayed installed responses, stays inside this fixture. */
 async function mockService(page: Page, options: FixtureOptions = {}) {
-  const root = resolve(process.env.D215_DIST ?? 'dist');
+  const root = resolve(process.env.K55_CORE_ASSET_ROOT ?? process.env.D215_DIST ?? 'dist');
   const shaderRoot = resolve('../nexus-service/src/Lighting/Engine/Gpu/Shaders');
   const captured: Record<string, unknown> = options.replayPath ? JSON.parse(readFileSync(options.replayPath, 'utf8')) : {};
   const custom = options.customSources ? JSON.parse(readFileSync(options.customSources, 'utf8')) as { composed: string } : null;
@@ -65,12 +67,14 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
   const trigger: LightingAudioTriggerSettings = structuredClone(captured['/lighting/audio-trigger'] as LightingAudioTriggerSettings
     ?? { enabled: options.triggerEnabled ?? false, intensity: 50, switchDelay: 1, shuffle: false,
       looks: options.triggerEnabled ? [{ mode: 'static', color: '#ff0000' }] : [] });
-  const fixtureIds = options.selectedCount ? Array.from({ length: options.selectedCount }, (_, i) => `fixture-${i}`) : ['a', 'b'];
+  const fixtureIds = options.coreKeyboard ? ['core']
+    : options.selectedCount ? Array.from({ length: options.selectedCount }, (_, i) => `fixture-${i}`) : ['a', 'b'];
   const devices = capturedDevices?.devices ?? fixtureIds.map((id, index) => ({
-    id, name: options.selectedCount ? `Fixture ${index + 1}` : `Fixture ${id.toUpperCase()}`, ledsOn: true, ledCount: 10,
+    id, name: options.coreKeyboard ? 'K55 CORE RGB' : options.selectedCount ? `Fixture ${index + 1}` : `Fixture ${id.toUpperCase()}`, ledsOn: true, ledCount: 10,
     canvasX: (index % 5) * 180, canvasY: Math.floor(index / 5) * 240, canvasW: 160, canvasH: 200, canvasRotation: 0,
   }));
   const initialPins = structuredClone(capturedPins?.pins ?? {});
+  const prefsSockets = new Set<WebSocketRoute>();
   const selectedIds = options.selectedCount
     ? devices.filter(device => !options.replayPath || initialPins[device.id]?.effect === 'terrace').map(device => device.id).slice(0, options.selectedCount)
     : [];
@@ -80,7 +84,18 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
     animateStates: capturedAnimate?.states ?? {},
     activeEffect: capturedAnimate?.effect ?? options.globalEffect ?? 'fire', delayedEffect: '', failShaders: false,
     selectedIds, streamFrames: 0, triggerReads: 0, pendingShaderReleases: new Set<() => void>(),
-    releaseShader: null as (() => void) | null };
+    releaseShader: null as (() => void) | null,
+    keyReaction: { enabled: false, effect: 'ripple', colorMode: 'custom', color: '#ff2d55',
+      speed: 1, size: 1, background: 'effect' } as KeyReaction,
+    keyPreviews: [] as KeyReaction[], keyPresses: [] as { led?: number }[],
+    keyEpoch: 'a'.repeat(32), keyReads: 0, keyLayoutRevision: 'c1:0123456789:000',
+    keySlots: Array.from({ length: 10 }, (_, i) => i), keyPreviewRevisions: [] as (string | null)[],
+    keyPressRevisions: [] as (string | null)[],
+    keyWrites: [] as { epoch: string | null; layoutRevision: string | null; config: KeyReaction }[],
+    prefsClients: 0,
+    broadcastPrefs: () => { for (const socket of prefsSockets) socket.send(JSON.stringify({ t: 'prefs', d: {} })); },
+    broadcastLighting: () => { for (const socket of prefsSockets) socket.send(JSON.stringify({ t: 'lighting', d: {} })); },
+  };
   await page.addInitScript(({ selectedIds }) => {
     localStorage.setItem('nexus_token', 'test-token');
     localStorage.setItem('nexus_settings', JSON.stringify({ general: {
@@ -135,8 +150,16 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
     };
   }, { selectedIds });
   await page.routeWebSocket(/.*/, socket => {
+    if (new URL(socket.url()).pathname === '/ws') {
+      prefsSockets.add(socket); state.prefsClients = prefsSockets.size;
+      socket.onClose(() => { prefsSockets.delete(socket); state.prefsClients = prefsSockets.size; });
+      return;
+    }
     if (!options.stream || new URL(socket.url()).pathname !== '/lighting/output') return;
-    const frame = globalFrame();
+    const frame = options.coreKeyboard
+      ? Buffer.concat([globalFrame().subarray(0, -1), Buffer.from([1, 0, 10, 0,
+        ...Array.from({ length: 10 }, (_, i) => [220 - i * 10, 40 + i * 15, 40 + i * 10]).flat()])])
+      : globalFrame();
     const send = () => { socket.send(frame); state.streamFrames++; };
     send();
     const timer = setInterval(send, 50);
@@ -209,6 +232,33 @@ async function mockService(page: Page, options: FixtureOptions = {}) {
     if (path === '/lighting/music-reactive') return json(captured[path] ?? { enabled: false });
     if (path === '/lighting/audio-trigger') { state.triggerReads++; return json(state.trigger); }
     if (path === '/lighting/audio-output') return json({ direction: 'output', deviceId: '', deviceName: '' });
+    if (options.coreKeyboard && path === '/lighting/key-reactive') { state.keyReads++; return json({ epoch: state.keyEpoch, inputAvailable: true, devices: [{
+      id: 'core', deviceId: 'corsair-core', frameIndex: 0, ledCount: state.keySlots.length, namedKeys: 0, hardwareKeys: false,
+      layoutRevision: state.keyLayoutRevision,
+      zoneLighting: true, supportedEffects: ['fade', 'ripple'], keyboardLayouts: ['US', 'UK', 'BR', 'JP'], config: state.keyReaction,
+    }] }); }
+    if (options.coreKeyboard && path.startsWith('/lighting/key-reactive/core')) {
+      const query = new URL(request.url()).searchParams;
+      const expectedEpoch = query.get('expectedEpoch'), expectedRevision = query.get('expectedLayoutRevision');
+      if (request.method() === 'PUT') state.keyWrites.push({ epoch: expectedEpoch, layoutRevision: expectedRevision, config: request.postDataJSON() });
+      if (expectedEpoch !== null && expectedEpoch !== state.keyEpoch) return route.fulfill({ status: 409, body: '' });
+      if (expectedRevision !== null && expectedRevision !== state.keyLayoutRevision) return route.fulfill({ status: 409, body: '' });
+    }
+    if (options.coreKeyboard && path === '/lighting/key-reactive/core' && request.method() === 'PUT') {
+      state.keyReaction = request.postDataJSON();
+      return json(state.keyReaction);
+    }
+    if (options.coreKeyboard && path === '/lighting/key-reactive/core/preview') {
+      state.keyPreviews.push(request.postDataJSON());
+      state.keyPreviewRevisions.push(new URL(request.url()).searchParams.get('expectedLayoutRevision'));
+      return json({ x: state.keySlots.map(i => i * 2 + 1), y: Array(state.keySlots.length).fill(2.5),
+        width: 20, height: 6, fps: 30, frameCount: 1, frames: Buffer.alloc(state.keySlots.length * 3).toString('base64'), zoneLighting: true });
+    }
+    if (options.coreKeyboard && path === '/lighting/key-reactive/core/press') {
+      state.keyPresses.push(request.postDataJSON());
+      state.keyPressRevisions.push(new URL(request.url()).searchParams.get('expectedLayoutRevision'));
+      return json({ ok: true });
+    }
     if (request.method() === 'GET' && captured[path] !== undefined && typeof captured[path] !== 'string') return json(captured[path]);
     return route.fulfill({ status: 404, body: '' });
   });
@@ -219,6 +269,152 @@ const background = (page: Page) => page.locator('[class*="canvasArea"] canvas[cl
 const backgroundPixel = (page: Page) => background(page).evaluate(canvas => {
   if (!(canvas instanceof HTMLCanvasElement)) return [];
   return [...canvas.getContext('2d')!.getImageData(2, 2, 1, 1).data];
+});
+
+test('K55 CORE Lighting card selects a physical layout, previews ten zones and preserves its saved reaction', async ({ page }, testInfo) => {
+  const state = await mockService(page, { coreKeyboard: true, stream: true });
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: 'Lighting', exact: true }).click();
+  const card = page.locator('[class*="devicePane"]').getByText('K55 CORE RGB', { exact: true });
+  const open = async () => {
+    await card.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Type reactive', exact: true }).click();
+  };
+  await open();
+  const enabled = page.getByRole('switch', { name: 'Type reactive', exact: true });
+  await expect(enabled).toBeDisabled();
+  expect(state.keyPreviews).toHaveLength(0);
+  await page.getByRole('radio', { name: 'UK', exact: true }).click();
+  await expect(enabled).toBeEnabled();
+  const preview = page.getByRole('button', { name: 'Zone lighting preview. Press to trigger a random zone.', exact: true });
+  await expect(preview).toHaveAttribute('data-zone-count', '10');
+  await expect(preview).toHaveAttribute('data-live', 'true');
+  await expect(page.getByText('10 shared lighting zones', { exact: true })).toBeVisible();
+  const effects = page.getByRole('group', { name: 'Effect', exact: true });
+  await expect(effects.getByRole('button')).toHaveCount(2);
+  await expect(effects.getByRole('button', { name: 'Zone fade', exact: true })).toBeVisible();
+  await expect.poll(() => preview.evaluate(canvas => {
+    if (!(canvas instanceof HTMLCanvasElement)) return [];
+    return [...canvas.getContext('2d')!.getImageData(Math.round(canvas.width / 20), Math.round(canvas.height * 2.5 / 6), 1, 1).data];
+  })).toEqual([220, 56, 56, 255]);
+  await enabled.click();
+  await effects.getByRole('button', { name: 'Zone fade', exact: true }).click();
+  await expect.poll(() => state.keyReaction).toMatchObject({ enabled: true, effect: 'fade', keyboardLayout: 'UK' });
+  const box = await preview.boundingBox();
+  if (!box) throw new Error('Missing shared-zone preview bounds');
+  await preview.click({ position: { x: box.width * 19 / 20, y: box.height * 2.5 / 6 } });
+  await expect.poll(() => state.keyPresses.some(press => press.led === 9)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('k55-core-ten-zone-editor.png') });
+  await page.keyboard.press('Escape');
+  await expect(preview).toHaveCount(0);
+  await open();
+  await expect(page.getByRole('radio', { name: 'UK', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(enabled).toBeChecked();
+  await expect(effects.getByRole('button', { name: 'Zone fade', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(state.keyPreviews.every(config => config.keyboardLayout === 'UK')).toBe(true);
+  expect(state.keyWrites.every(write => write.epoch === state.keyEpoch)).toBe(true);
+  expect(state.keyWrites.every(write => write.layoutRevision === state.keyLayoutRevision)).toBe(true);
+  expect(state.keyPreviewRevisions.every(revision => revision === state.keyLayoutRevision)).toBe(true);
+  expect(state.keyPressRevisions.every(revision => revision === state.keyLayoutRevision)).toBe(true);
+  expect(state.trigger.enabled).toBe(false);
+  expect(state.pins).toEqual({});
+  expect(errors).toEqual([]);
+});
+
+test('K55 CORE selects an ordered black and custom colour cycle and preserves it on reopen', async ({ page }, testInfo) => {
+  const state = await mockService(page, { coreKeyboard: true, stream: true });
+  state.keyReaction = { ...state.keyReaction, enabled: true, keyboardLayout: 'UK' };
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: 'Lighting', exact: true }).click();
+  const open = async () => {
+    await page.locator('[class*="devicePane"]').getByText('K55 CORE RGB', { exact: true }).click({ button: 'right' });
+    await page.getByRole('button', { name: 'Type reactive', exact: true }).click();
+  };
+  await open();
+  const swatch = (hex: string) => page.getByRole('button', { name: hex, exact: true });
+  await swatch('#000000').click();
+  await swatch('#0a84ff').click();
+  await swatch('#ff2d55').click();
+  await expect(swatch('#000000')).toHaveAttribute('aria-pressed', 'true');
+  await expect(swatch('#0a84ff')).toHaveAccessibleDescription('Colour 2 in the cycle');
+  await page.getByRole('button', { name: 'Add custom colour', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Hex color', exact: true }).fill('#123456');
+  await expect.poll(() => state.keyReaction.colors).toEqual(['#000000', '#0a84ff']);
+  await page.getByRole('button', { name: 'Add colour', exact: true }).click();
+  await expect.poll(() => state.keyReaction).toMatchObject({ color: '#000000', colors: ['#000000', '#0a84ff', '#123456'], speed: 1, size: 1 });
+  await expect(swatch('#123456')).toHaveAccessibleDescription('Colour 3 in the cycle');
+  await page.screenshot({ path: testInfo.outputPath('k55-core-custom-colour-cycle.png') });
+  await page.keyboard.press('Escape');
+  await open();
+  await expect(swatch('#000000')).toHaveAttribute('aria-pressed', 'true');
+  await expect(swatch('#0a84ff')).toHaveAttribute('aria-pressed', 'true');
+  await expect(swatch('#123456')).toHaveAttribute('aria-pressed', 'true');
+  expect(state.keyWrites.every(write => write.epoch === state.keyEpoch && write.layoutRevision === state.keyLayoutRevision)).toBe(true);
+  expect(state.pins).toEqual({});
+  expect(state.trigger.enabled).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('K55 CORE retires an old modal draft before a same-card profile reload', async ({ page }) => {
+  const state = await mockService(page, { coreKeyboard: true, stream: true });
+  state.keyReaction = { ...state.keyReaction, keyboardLayout: 'US' };
+  await page.goto('/');
+  await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: 'Lighting', exact: true }).click();
+  await expect.poll(() => state.prefsClients).toBeGreaterThan(0);
+  const card = page.locator('[class*="devicePane"]').getByText('K55 CORE RGB', { exact: true });
+  const open = async () => {
+    await card.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Type reactive', exact: true }).click();
+  };
+  await open();
+  await page.getByRole('radio', { name: 'UK', exact: true }).click();
+  const previousReads = state.keyReads;
+  state.keyEpoch = 'b'.repeat(32);
+  state.keyReaction = { ...state.keyReaction, keyboardLayout: 'JP', color: '#0000ff' };
+  state.broadcastPrefs();
+  await expect(page.getByRole('radio', { name: 'UK', exact: true })).toHaveCount(0);
+  await expect.poll(() => state.keyReads).toBeGreaterThan(previousReads);
+  // Cross the old owner's explicit 250ms debounce deadline: it must not send.
+  await page.waitForTimeout(350);
+  expect(state.keyWrites).toHaveLength(0);
+  expect(state.keyReaction).toMatchObject({ keyboardLayout: 'JP', color: '#0000ff' });
+  await open();
+  await expect(page.getByRole('radio', { name: 'JP', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: 'UK', exact: true }).click();
+  await expect.poll(() => state.keyWrites.length).toBe(1);
+  expect(state.keyWrites[0]).toMatchObject({ epoch: state.keyEpoch, config: { keyboardLayout: 'UK', color: '#0000ff' } });
+});
+
+test('K55 CORE retires old geometry and drafts when the same card is sliced or reordered', async ({ page }) => {
+  const state = await mockService(page, { coreKeyboard: true, stream: true });
+  state.keyReaction = { ...state.keyReaction, keyboardLayout: 'UK' };
+  await page.goto('/');
+  await page.locator('[class*="sidebarColumn"]').getByRole('button', { name: 'Lighting', exact: true }).click();
+  await expect.poll(() => state.prefsClients).toBeGreaterThan(0);
+  await page.locator('[class*="devicePane"]').getByText('K55 CORE RGB', { exact: true }).click({ button: 'right' });
+  await page.getByRole('button', { name: 'Type reactive', exact: true }).click();
+  const preview = page.getByRole('button', { name: 'Zone lighting preview. Press to trigger a random zone.', exact: true });
+  await expect(preview).toHaveAttribute('data-zone-count', '10');
+  for (const [slots, revision] of [[[8, 9], 'c1:89:000'], [[9, 8], 'c1:98:080']] as const) {
+    await page.getByRole('radio', { name: 'JP', exact: true }).click();
+    state.keySlots = [...slots]; state.keyLayoutRevision = revision;
+    state.broadcastLighting();
+    await expect.poll(() => state.keyPreviewRevisions.at(-1)).toBe(revision);
+    await expect(preview).toHaveAttribute('data-zone-count', '2');
+    await expect(page.getByText('2 shared lighting zones', { exact: true })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'UK', exact: true })).toHaveAttribute('aria-checked', 'true');
+    await page.waitForTimeout(350);
+    expect(state.keyWrites).toHaveLength(0);
+  }
+  await page.getByRole('switch', { name: 'Type reactive', exact: true }).click();
+  await expect.poll(() => state.keyWrites.length).toBe(1);
+  expect(state.keyWrites[0]).toMatchObject({ epoch: state.keyEpoch, layoutRevision: 'c1:98:080', config: { keyboardLayout: 'UK' } });
+  await preview.focus(); await page.keyboard.press('Enter');
+  await expect.poll(() => state.keyPressRevisions.at(-1)).toBe('c1:98:080');
 });
 
 for (const replay of [false, true]) {

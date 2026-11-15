@@ -15,6 +15,7 @@ export const MULTIPLIER_STEP = 0.05;
 
 /** Swatches offered next to the custom picker. */
 export const KEY_REACTION_PRESETS: readonly string[] = [
+  '#000000',
   '#ff2d55', '#ff7a1a', '#ffd60a', '#32d74b', '#00e5c8',
   '#0a84ff', '#5e5ce6', '#bf5af2', '#ff6fb5', '#ffffff',
 ];

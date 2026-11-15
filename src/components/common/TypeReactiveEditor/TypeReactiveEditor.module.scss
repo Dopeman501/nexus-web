@@ -39,6 +39,12 @@
   min-width: 0;
 }
 
+.toggleArea {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
 .optionsArea {
   display: flex;
   flex-direction: column;

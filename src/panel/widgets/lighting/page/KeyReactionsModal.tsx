@@ -4,27 +4,29 @@ import {
   TypeReactiveEditor,
   useTypeReactiveConfig,
   type TypeReactiveEditorProps,
+  type TypeReactiveScope,
 } from '../../../../components/common/TypeReactiveEditor/TypeReactiveEditor';
 import type { KeyReaction } from '../../../../api/keyReactive';
 import { useTranslation } from '../../../../lib/i18n';
 
 interface KeyReactionsModalProps extends Omit<TypeReactiveEditorProps, 'controller' | 'layout'> {
   initialConfig: KeyReaction;
+  scope?: TypeReactiveScope;
   deviceName: string;
   onClose: () => void;
 }
 
 /** Modal shell around the shared Type reactive editor. */
-export function KeyReactionsModal({ deviceName, onClose, initialConfig, ...editor }: KeyReactionsModalProps) {
+export function KeyReactionsModal({ deviceName, onClose, initialConfig, scope, ...editor }: KeyReactionsModalProps) {
   const { t } = useTranslation();
-  const controller = useTypeReactiveConfig(editor.cardId, initialConfig);
+  const controller = useTypeReactiveConfig(editor.cardId, initialConfig, scope);
   // The last edit is written before the host refetches on close, so the
   // refetch never reads the config from before it.
   const closingRef = useRef(false);
   const handleClose = () => {
     if (closingRef.current) return;
     closingRef.current = true;
-    void controller.flushSave().finally(onClose);
+    void controller.flushSave().finally(() => { if (controller.isCurrent()) onClose(); });
   };
   return (
     <DeviceModal

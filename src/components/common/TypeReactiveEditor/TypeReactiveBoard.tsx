@@ -15,9 +15,14 @@ const UNLIT_FLOOR = 56;
 const ACCENT_FALLBACK = '#0a84ff';
 // Brightness above which an LED throws a soft halo.
 const HALO_THRESHOLD = 24;
+const ZONE_HALF_WIDTH = 0.7;
 
 /** Board bounds in key units, padded half a key so edge keys are never clipped. */
-function boardBounds(p: KeyReactionPreview) {
+function boardBounds(p: KeyReactionPreview, zoneLighting: boolean) {
+  if (zoneLighting) {
+    const x0 = Math.min(0, ...p.x.map(x => x - ZONE_HALF_WIDTH));
+    return { x0, y0: 0, w: Math.max(1, p.width, ...p.x.map(x => x + ZONE_HALF_WIDTH)) - x0, h: Math.max(1, p.height) };
+  }
   const half = 0.5;
   const x0 = Math.min(...p.x) - half;
   const y0 = Math.min(...p.y) - half;
@@ -31,15 +36,18 @@ interface TypeReactiveBoardProps {
   /** Paint the card's LED bytes from the output stream; otherwise the keys show unlit. */
   live: boolean;
   frameIndex: number;
+  /** Draw shared regions instead of suggesting individually lit keys. */
+  zoneLighting?: boolean;
   onPressLed: (led: number) => void;
   onPressRandom: () => void;
 }
 
-/** The keyboard drawn as LED-map style dots. Canvas rather than DOM so a full
+/** The keyboard drawn as LED-map dots or symbolic shared zones. Canvas so a full
  *  board repaints per frame without a node per key. Layout comes from the
  *  preview; colours come from the output stream. */
 export function TypeReactiveBoard({
   preview, label, disabled, live, frameIndex, onPressLed, onPressRandom,
+  zoneLighting = false,
 }: TypeReactiveBoardProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,8 +58,8 @@ export function TypeReactiveBoard({
   const paintRef = useRef<((rgb: Uint8Array) => void) | null>(null);
 
   const bounds = useMemo(
-    () => (preview && preview.x.length > 0 ? boardBounds(preview) : null),
-    [preview],
+    () => (preview && preview.x.length > 0 ? boardBounds(preview, zoneLighting) : null),
+    [preview, zoneLighting],
   );
 
   useEffect(() => {
@@ -66,6 +74,8 @@ export function TypeReactiveBoard({
 
   const scale = bounds && width > 0 ? width / bounds.w : 0;
   const height = bounds ? Math.round(bounds.h * scale) : 0;
+  // These are symbolic shared regions, not outlines of independently lit keys.
+  const zoneHalfHeight = Math.max(0.5, ((preview?.height ?? 2) - 1) / 2);
 
   // Painter: rebuilt when the layout changes.
   useEffect(() => {
@@ -79,6 +89,16 @@ export function TypeReactiveBoard({
     canvas.height = Math.round(height * dpr);
     const accent = getComputedStyle(canvas).getPropertyValue('--accent').trim() || ACCENT_FALLBACK;
     const radius = Math.min(scale * LED_FILL, LED_MAX_DIAMETER) / 2;
+    const trace = (cx: number, cy: number, expand = 0) => {
+      ctx.beginPath();
+      if (zoneLighting) {
+        const halfW = ZONE_HALF_WIDTH * scale + expand;
+        const halfH = zoneHalfHeight * scale + expand;
+        ctx.roundRect(cx - halfW, cy - halfH, halfW * 2, halfH * 2, Math.min(5, halfW));
+      } else {
+        ctx.arc(cx, cy, radius + expand, 0, Math.PI * 2);
+      }
+    };
     paintRef.current = (rgb: Uint8Array) => {
       lastRef.current = rgb;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -90,18 +110,15 @@ export function TypeReactiveBoard({
         const g = rgb[i * 3 + 1];
         const b = rgb[i * 3 + 2];
         if (Math.max(r, g, b) > HALO_THRESHOLD) {
-          ctx.beginPath();
-          ctx.arc(cx, cy, radius * 1.45, 0, Math.PI * 2);
+          trace(cx, cy, radius * 0.45);
           ctx.fillStyle = `rgba(${r},${g},${b},0.22)`;
           ctx.fill();
         }
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        trace(cx, cy);
         ctx.fillStyle = `rgb(${lift(r, UNLIT_FLOOR)},${lift(g, UNLIT_FLOOR)},${lift(b, UNLIT_FLOOR)})`;
         ctx.fill();
         if (i === hoverRef.current) {
-          ctx.beginPath();
-          ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2);
+          trace(cx, cy, 3);
           ctx.lineWidth = 2;
           ctx.strokeStyle = accent;
           ctx.stroke();
@@ -110,7 +127,7 @@ export function TypeReactiveBoard({
     };
     paintRef.current(lastRef.current ?? new Uint8Array(preview.x.length * 3));
     return () => { paintRef.current = null; };
-  }, [preview, bounds, scale, width, height]);
+  }, [preview, bounds, scale, width, height, zoneLighting, zoneHalfHeight]);
 
   // Live: paint the card's section of every stream frame.
   useEffect(() => {
@@ -136,11 +153,15 @@ export function TypeReactiveBoard({
     let best = -1;
     let bestDist = HIT_RADIUS;
     for (let i = 0; i < preview.x.length; i++) {
+      if (zoneLighting) {
+        if (Math.abs(preview.x[i] - ux) <= ZONE_HALF_WIDTH && Math.abs(preview.y[i] - uy) <= zoneHalfHeight) return i;
+        continue;
+      }
       const d = Math.hypot(preview.x[i] - ux, preview.y[i] - uy);
       if (d <= bestDist) { best = i; bestDist = d; }
     }
     return best;
-  }, [preview, bounds, scale]);
+  }, [preview, bounds, scale, zoneLighting, zoneHalfHeight]);
 
   const setHover = (i: number) => {
     if (hoverRef.current === i) return;
@@ -177,6 +198,7 @@ export function TypeReactiveBoard({
           aria-label={label}
           aria-disabled={disabled}
           data-live={live || undefined}
+          data-zone-count={zoneLighting && preview ? preview.x.length : undefined}
           onClick={handleClick}
           onMouseMove={e => setHover(nearest(e))}
           onMouseLeave={() => setHover(-1)}

@@ -125,7 +125,7 @@ import { LedMapEditor } from './page/LedMapEditor';
 import { ColorTuningModal } from './page/ColorTuningModal';
 import { useGlobalColor } from './page/useGlobalColor';
 import { KeyReactionsModal } from './page/KeyReactionsModal';
-import { fetchKeyReactive, type KeyReactiveState } from '../../../api/keyReactive';
+import { useKeyReactiveState } from '../../../hooks/useKeyReactiveState';
 import { visibleCards } from './page/zoneUtils';
 import { OpenRgbButton } from './page/OpenRgbButton';
 import { GlobalBrightnessSlider } from './page/GlobalBrightnessSlider';
@@ -1729,12 +1729,14 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   // on; only those get the menu row. Fetched on mount and after each device
   // refresh, since a keyboard can appear or leave with the device list. The
   // modal mounts only while open so it opens on the stored config.
-  const [keyReactive, setKeyReactive] = useState<KeyReactiveState | null>(null);
+  const { data: keyReactive, scope: keyReactiveScope, scopeFor: keyReactiveScopeFor, refresh: refreshKeyReactive } = useKeyReactiveState(activeProfileKey, serviceOnline);
   const [keyReactionsId, setKeyReactionsId] = useState<string | null>(null);
-  const refreshKeyReactive = useCallback(async () => {
-    const data = await fetchKeyReactive().catch(() => null);
-    if (data) setKeyReactive(data);
-  }, []);
+  const keyReactiveScopeRef = useRef(keyReactiveScope.key);
+  useEffect(() => {
+    if (keyReactiveScopeRef.current === keyReactiveScope.key) return;
+    keyReactiveScopeRef.current = keyReactiveScope.key;
+    setKeyReactionsId(null);
+  }, [keyReactiveScope.key]);
   const keyReactiveIds = useMemo(
     () => new Set((keyReactive?.devices ?? []).map(d => d.id)),
     [keyReactive],
@@ -1746,6 +1748,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
   const keyReactionsDevice = keyReactionsId
     ? keyReactive?.devices.find(d => d.id === keyReactionsId)
     : undefined;
+  const keyReactionsDeviceScope = keyReactionsDevice ? keyReactiveScopeFor(keyReactionsDevice) : undefined;
   // A keyboard that drops out of the list closes its editor for good, rather
   // than leaving it to reopen when the card comes back.
   useEffect(() => {
@@ -3387,16 +3390,22 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
           onClose={lastWrite => { setColorTuningIds(null); void lastWrite.then(refreshDevices); }}
         />
       )}
-      {keyReactionsId && keyReactionsDevice && (
+      {keyReactionsId && keyReactionsDevice && keyReactionsDeviceScope && (
         <KeyReactionsModal
+          key={keyReactionsDeviceScope.key}
           cardId={keyReactionsId}
+          scope={keyReactionsDeviceScope}
           deviceName={orderedDevices.find(d => d.id === keyReactionsId)?.name ?? keyReactionsId}
           initialConfig={keyReactionsDevice.config}
           inputAvailable={keyReactive?.inputAvailable ?? false}
           hardwareKeys={keyReactionsDevice.hardwareKeys}
           frameIndex={keyReactionsDevice.frameIndex}
+          ledCount={keyReactionsDevice.ledCount}
+          zoneLighting={keyReactionsDevice.zoneLighting}
+          supportedEffects={keyReactionsDevice.supportedEffects}
+          keyboardLayouts={keyReactionsDevice.keyboardLayouts}
           stream={lightingStream}
-          onClose={() => { setKeyReactionsId(null); void refreshKeyReactive(); }}
+          onClose={() => { if (keyReactionsDeviceScope.isCurrent?.()) { setKeyReactionsId(null); void refreshKeyReactive(); } }}
         />
       )}
       <FixLightingModal

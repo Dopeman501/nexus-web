@@ -621,8 +621,8 @@ export async function pickSystemPath(folder: boolean): Promise<string | null> {
   return res?.path ?? null;
 }
 
-export async function putService<T>(path: string, body: unknown): Promise<T | null> {
-  const r = await authFetch(path, { method: 'PUT', body });
+export async function putService<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T | null> {
+  const r = await authFetch(path, { method: 'PUT', body, ...(signal ? { signal } : {}) });
   return r ? (await r.json()) as T : null;
 }
 

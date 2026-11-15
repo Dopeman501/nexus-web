@@ -54,3 +54,17 @@ Use distinct run names to retain separate reports. Results and screenshots go un
 All HTTP, WebSocket and simulator-iframe traffic is intercepted; `localhost:9400` is a virtual origin and no listener is started. Records, settings and save failures are synthetic. No running Nexus service, saved user data or hardware is needed or accessed. Selecting another compiled asset root still tests those files against mocks; it does not establish live-service or physical-display behavior.
 
 `../builds/` links in historical reports identify local, ignored verification artifacts; they are not repository prerequisites and are absent from a clean clone. The fixtures and setup here are the reproducible source.
+
+## K55 CORE Type Reactive
+
+The CORE production-route cases add a synthetic ten-zone keyboard to the Lighting card list, then check physical-layout selection, supported effects, streamed zone colours, zone clicks and saved-config reopening. A second case retires a pending modal draft during a same-card profile-generation reload, then verifies fresh config and epoch-scoped saving. A third retires drafts and preview geometry when the same card becomes a two-zone slice or changes its ordered projection/disabled mask, and checks the captured revision on saves, previews and simulated presses. All HTTP and WebSocket traffic is intercepted before navigation; no server/listener is started and no installed Nexus settings or hardware are accessed.
+
+```powershell
+npm run build:service
+$env:K55_CORE_ASSET_ROOT = (Resolve-Path -LiteralPath dist).Path
+$env:K55_CORE_EXPECTED_INDEX_SHA256 = (Get-FileHash -LiteralPath dist/index.html -Algorithm SHA256).Hash.ToLowerInvariant()
+$env:K55_CORE_RUN = 'core-local'
+node node_modules/@playwright/test/cli.js test -c e2e/k55Core.config.ts
+```
+
+The existing Microsoft Edge installation is required. Reports/screenshots go under ignored `.playwright/k55-core/` in `nexus-web`; use a distinct run name to preserve separate evidence. This proves the compiled dashboard behavior against mocked capabilities/output, not native detection, real key input or physical lighting.

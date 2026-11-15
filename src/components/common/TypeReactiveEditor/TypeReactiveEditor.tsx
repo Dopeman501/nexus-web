@@ -6,7 +6,6 @@ import { Slider } from '../Slider/Slider';
 import { SettingToggle } from '../SettingRow/SettingRow';
 import { IconLabelButton } from '../IconLabelButton/IconLabelButton';
 import { ChipGroup } from '../ChipGroup/ChipGroup';
-import { ColorPickerWithPresets } from '../ColorPickerWithPresets/ColorPickerWithPresets';
 import { useTranslation } from '../../../lib/i18n';
 import { isTunnelActive } from '../../../api/service';
 import { subscribeLedFrame } from '../../../lib/ledFrameStore';
@@ -14,8 +13,6 @@ import type { LightingFrameState } from '../../../hooks/useLightingFrames';
 import {
   fetchKeyReactionPreview,
   pressKeyReaction,
-  putKeyReaction,
-  type KeyReaction,
   type KeyReactionBackground,
   type KeyReactionColorMode,
   type KeyReactionEffect,
@@ -25,7 +22,6 @@ import {
   KEY_REACTION_BACKGROUNDS,
   KEY_REACTION_COLOR_MODES,
   KEY_REACTION_EFFECTS,
-  KEY_REACTION_PRESETS,
   MULTIPLIER_STEP,
   SIZE_RANGE,
   SPEED_RANGE,
@@ -34,20 +30,14 @@ import {
   snapMultiplier,
 } from './keyReactionsUtils';
 import { TypeReactiveBoard } from './TypeReactiveBoard';
+import { TypeReactivePalette } from './TypeReactivePalette';
 import styles from './TypeReactiveEditor.module.scss';
-
-/** One keyboard's config with optimistic, debounced write-back; see {@link useTypeReactiveConfig}. */
-export interface TypeReactiveConfig {
-  config: KeyReaction;
-  update: (patch: Partial<KeyReaction>) => void;
-  /** Writes any pending edit now. */
-  flushSave: () => Promise<void>;
-  /** The latest config, including an edit not yet rendered. */
-  current: () => KeyReaction;
-}
+import type { TypeReactiveConfig } from './useTypeReactiveConfig';
+export { useTypeReactiveConfig } from './useTypeReactiveConfig';
+export type { TypeReactiveConfig, TypeReactiveScope } from './useTypeReactiveConfig';
 
 export interface TypeReactiveEditorProps {
-  /** Lighting-device card id of the per-key keyboard (press / preview routes). */
+  /** Lighting-device card id of the reactive keyboard (press / preview routes). */
   cardId: string;
   /** Config state from {@link useTypeReactiveConfig}; the host owns it so the config outlives a remount of the editor. */
   controller: TypeReactiveConfig;
@@ -59,6 +49,11 @@ export interface TypeReactiveEditorProps {
   frameIndex: number;
   /** Lighting output socket state; frames themselves arrive through ledFrameStore. */
   stream: LightingFrameState;
+  /** Shared lighting regions, with an explicit physical-key layout. */
+  zoneLighting?: boolean;
+  ledCount?: number;
+  supportedEffects?: readonly KeyReactionEffect[];
+  keyboardLayouts?: readonly string[];
   /** 'split' puts the options left and a compact board right (the modal); 'stacked' is one column (the keyboard page). */
   layout?: 'split' | 'stacked';
 }
@@ -76,56 +71,7 @@ const EFFECT_ICONS: Record<KeyReactionEffect, ReactNode> = {
   trace: <Route size={18} />,
 };
 
-const SAVE_DEBOUNCE_MS = 250;
-
-/**
- * Config state for one keyboard's Type reactive editor. Every edit is
- * optimistic and written back debounced; the service's sanitised config
- * replaces ours only when no newer edit is waiting, so a drag is never rewound
- * by an older response. A pending edit is flushed on unmount.
- */
-export function useTypeReactiveConfig(cardId: string, initialConfig: KeyReaction): TypeReactiveConfig {
-  const [config, setConfig] = useState<KeyReaction>(initialConfig);
-  const configRef = useRef(config);
-  const editSeqRef = useRef(0);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirtyRef = useRef(false);
-
-  const flushSave = useCallback((): Promise<void> => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    if (!dirtyRef.current) return Promise.resolve();
-    dirtyRef.current = false;
-    const seq = editSeqRef.current;
-    // A failed write resolves null; while it is still the newest edit it stays
-    // pending, so the next save or the unmount flush retries it.
-    const keepPending = () => { if (seq === editSeqRef.current) dirtyRef.current = true; };
-    return putKeyReaction(cardId, configRef.current).then(saved => {
-      if (!saved) { keepPending(); return; }
-      if (seq === editSeqRef.current) {
-        configRef.current = saved;
-        setConfig(saved);
-      }
-    }).catch(keepPending);
-  }, [cardId]);
-
-  const update = useCallback((patch: Partial<KeyReaction>) => {
-    const next = { ...configRef.current, ...patch };
-    configRef.current = next;
-    editSeqRef.current += 1;
-    dirtyRef.current = true;
-    setConfig(next);
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => { void flushSave(); }, SAVE_DEBOUNCE_MS);
-  }, [flushSave]);
-
-  useEffect(() => () => { void flushSave(); }, [flushSave]);
-
-  const current = useCallback(() => configRef.current, []);
-  return { config, update, flushSave, current };
-}
+const KEYBOARD_LAYOUTS = ['US', 'UK', 'BR', 'JP'] as const;
 
 /**
  * Type reactive editor for one keyboard: how a key press lights the board.
@@ -138,21 +84,37 @@ export function useTypeReactiveConfig(cardId: string, initialConfig: KeyReaction
  */
 export function TypeReactiveEditor({
   cardId, controller, inputAvailable, hardwareKeys, frameIndex, stream, layout = 'stacked',
+  zoneLighting = false, ledCount: physicalLedCount, supportedEffects, keyboardLayouts,
 }: TypeReactiveEditorProps) {
   const { t } = useTranslation();
-  const { config, update, flushSave, current } = controller;
+  const { config, update, flushSave, current, epoch, layoutRevision, isCurrent } = controller;
+  const effects = supportedEffects === undefined
+    ? KEY_REACTION_EFFECTS : KEY_REACTION_EFFECTS.filter(key => supportedEffects.includes(key));
+  const regions = KEYBOARD_LAYOUTS.filter(key => keyboardLayouts?.includes(key));
+  const region = zoneLighting ? config.keyboardLayout ?? '' : '';
+  const layoutReady = !zoneLighting || regions.some(key => key === region);
+  const reactionsReady = layoutReady && effects.length > 0;
+  const effectiveEffect = effects.includes(config.effect) ? config.effect : effects[0];
 
-  // The preview supplies the board's layout. Fetched once per card: the LED
+  // Fetch geometry per card/physical layout; ordinary look edits reuse it. LED
   // colours always come from the output stream, on or off.
   const [preview, setPreview] = useState<KeyReactionPreview | null>(null);
-  const initialRef = useRef(config);
+  const previewConfigRef = useRef(config);
+  previewConfigRef.current = { ...config, effect: effectiveEffect ?? config.effect };
   useEffect(() => {
+    setPreview(null);
+    if (!reactionsReady || !isCurrent()) return;
     const ctl = new AbortController();
-    fetchKeyReactionPreview(cardId, { ...initialRef.current, enabled: true }, ctl.signal)
-      .then(res => { if (!ctl.signal.aborted && res) setPreview(res); })
+    const pending = layoutRevision !== undefined
+      ? fetchKeyReactionPreview(cardId, { ...previewConfigRef.current, enabled: true }, ctl.signal, epoch, layoutRevision)
+      : epoch === undefined
+      ? fetchKeyReactionPreview(cardId, { ...previewConfigRef.current, enabled: true }, ctl.signal)
+      : fetchKeyReactionPreview(cardId, { ...previewConfigRef.current, enabled: true }, ctl.signal, epoch);
+    pending
+      .then(res => { if (!ctl.signal.aborted && isCurrent() && res) setPreview(res); })
       .catch(() => { /* aborted or unreachable: the board stays empty */ });
     return () => ctl.abort();
-  }, [cardId]);
+  }, [cardId, region, reactionsReady, epoch, layoutRevision, isCurrent]);
 
   // Live needs an open stream (never over relay) and the card's section in
   // the frames; without them the board shows unlit keys.
@@ -172,20 +134,26 @@ export function TypeReactiveEditor({
   }, [streamUsable, ledCount, frameIndex]);
 
   const pressRandom = useCallback(() => {
-    pressKeyReaction(cardId, {}).catch(() => { /* best-effort */ });
-  }, [cardId]);
+    if (!reactionsReady || !isCurrent()) return;
+    const pending = layoutRevision !== undefined ? pressKeyReaction(cardId, {}, epoch, undefined, layoutRevision)
+      : epoch === undefined ? pressKeyReaction(cardId, {}) : pressKeyReaction(cardId, {}, epoch);
+    pending.catch(() => { /* best-effort */ });
+  }, [cardId, reactionsReady, epoch, layoutRevision, isCurrent]);
   const handlePressLed = useCallback((led: number) => {
-    pressKeyReaction(cardId, { led }).catch(() => { /* best-effort */ });
-  }, [cardId]);
+    if (!reactionsReady || !isCurrent()) return;
+    const pending = layoutRevision !== undefined ? pressKeyReaction(cardId, { led }, epoch, undefined, layoutRevision)
+      : epoch === undefined ? pressKeyReaction(cardId, { led }) : pressKeyReaction(cardId, { led }, epoch);
+    pending.catch(() => { /* best-effort */ });
+  }, [cardId, reactionsReady, epoch, layoutRevision, isCurrent]);
 
   // Picking an effect on a live board fires one press so the change shows on
   // the hardware at once. The press runs on the stored config, so the edit is
   // written first.
   const handlePickEffect = useCallback((key: KeyReactionEffect) => {
     update({ effect: key });
-    if (!current().enabled) return;
+    if (!current().enabled || !reactionsReady) return;
     void flushSave().then(pressRandom);
-  }, [update, flushSave, current, pressRandom]);
+  }, [update, flushSave, current, pressRandom, reactionsReady]);
 
   const colorOptions = KEY_REACTION_COLOR_MODES.map(key => ({ key, label: t(`lighting.keyReactions.color.${key}`) }));
   const backgroundOptions = KEY_REACTION_BACKGROUNDS.map(key => ({ key, label: t(`lighting.keyReactions.background.${key}`) }));
@@ -198,24 +166,44 @@ export function TypeReactiveEditor({
       <div className={styles.toggleArea}>
         <SettingToggle
           label={t('lighting.keyReactions.title')}
-          description={t('lighting.keyReactions.description')}
-          checked={config.enabled}
-          onChange={enabled => update({ enabled })}
+          description={t(zoneLighting ? 'lighting.keyReactions.zoneDescription' : 'lighting.keyReactions.description')}
+          checked={config.enabled && reactionsReady}
+          disabled={!reactionsReady}
+          onChange={enabled => { if (reactionsReady) update({ enabled, effect: effectiveEffect }); }}
         />
+        {zoneLighting && (
+          <section className={styles.section}>
+            <span className={styles.sectionTitle}>{t('lighting.keyReactions.keyboardLayout.title')}</span>
+            <ChipGroup
+              options={regions.map(key => ({ key, label: t(`lighting.keyReactions.keyboardLayout.${key}`) }))}
+              ariaLabel={t('lighting.keyReactions.keyboardLayout.title')}
+              activeKey={region}
+              onChange={keyboardLayout => update({ keyboardLayout, enabled: config.enabled && reactionsReady })}
+              wrap
+            />
+            {!layoutReady && <p className={styles.hint}>{t('lighting.keyReactions.keyboardLayout.required')}</p>}
+          </section>
+        )}
       </div>
 
       <section className={styles.boardArea}>
         <TypeReactiveBoard
           preview={preview}
-          label={t('lighting.keyReactions.previewLabel')}
-          disabled={!config.enabled}
+          label={t(zoneLighting ? 'lighting.keyReactions.zonePreviewLabel' : 'lighting.keyReactions.previewLabel')}
+          disabled={!config.enabled || !reactionsReady}
+          zoneLighting={zoneLighting}
           live={live}
           frameIndex={frameIndex}
           onPressLed={handlePressLed}
           onPressRandom={pressRandom}
         />
+        {zoneLighting && (physicalLedCount ?? ledCount) > 0 && (
+          <span className={styles.sectionTitle}>{t('lighting.keyReactions.zoneCount', { count: physicalLedCount ?? ledCount })}</span>
+        )}
         <span className={styles.hint}>
-          {t(typingWorks ? 'lighting.keyReactions.previewHint' : 'lighting.keyReactions.previewHintClick')}
+          {t(zoneLighting
+            ? typingWorks ? 'lighting.keyReactions.zonePreviewHint' : 'lighting.keyReactions.zonePreviewHintClick'
+            : typingWorks ? 'lighting.keyReactions.previewHint' : 'lighting.keyReactions.previewHintClick')}
         </span>
       </section>
 
@@ -223,12 +211,12 @@ export function TypeReactiveEditor({
         <section className={styles.section}>
           <span className={styles.sectionTitle}>{t('lighting.keyReactions.effect')}</span>
           <div className={styles.gallery} role="group" aria-label={t('lighting.keyReactions.effect')}>
-            {KEY_REACTION_EFFECTS.map(key => (
+            {effects.map(key => (
               <IconLabelButton
                 key={key}
                 icon={EFFECT_ICONS[key]}
-                label={t(`lighting.keyReactions.effects.${key}.name`)}
-                active={key === config.effect}
+                label={t(zoneLighting && key === 'fade' ? 'lighting.keyReactions.zoneFade' : `lighting.keyReactions.effects.${key}.name`)}
+                active={key === effectiveEffect}
                 onPress={() => handlePickEffect(key)}
               />
             ))}
@@ -248,13 +236,8 @@ export function TypeReactiveEditor({
                 onChange={key => update({ colorMode: key as KeyReactionColorMode })}
               />
               {config.colorMode === 'custom' && (
-                <ColorPickerWithPresets
-                  value={config.color}
-                  presets={KEY_REACTION_PRESETS}
-                  allowCustom
-                  pickerPortal
-                  onCommit={hex => update({ color: hex })}
-                />
+                <TypeReactivePalette key={`${cardId}:${epoch ?? ''}:${layoutRevision ?? ''}`} config={config}
+                  onChange={colors => update({ color: colors[0], colors })} />
               )}
             </>
           )}

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
 import { SettingsSection } from '../../common/SettingsSection/SettingsSection';
 import {
   TypeReactiveEditor,
   useTypeReactiveConfig,
+  type TypeReactiveScope,
 } from '../../common/TypeReactiveEditor/TypeReactiveEditor';
-import { fetchKeyReactive, type KeyReactiveDevice, type KeyReactiveState } from '../../../api/keyReactive';
+import type { KeyReactiveDevice } from '../../../api/keyReactive';
+import { useKeyReactiveState } from '../../../hooks/useKeyReactiveState';
 import { isTunnelActive } from '../../../api/service';
 import { useLightingFrames } from '../../../hooks/useLightingFrames';
 import { useTranslation } from '../../../lib/i18n';
@@ -15,22 +16,14 @@ import styles from './KeebSettingsView.module.scss';
  *  a keeb). The same config backs the editor on the lighting page. */
 export function KeebTypeReactive() {
   const { t } = useTranslation();
-  // undefined while the first fetch is in flight, null when it failed.
-  const [state, setState] = useState<KeyReactiveState | null | undefined>(undefined);
-  useEffect(() => {
-    let cancelled = false;
-    fetchKeyReactive()
-      .then(res => { if (!cancelled) setState(res); })
-      .catch(() => { if (!cancelled) setState(null); });
-    return () => { cancelled = true; };
-  }, []);
+  const { data: state, scopeFor, loading } = useKeyReactiveState('keeb-type-reactive', true);
 
   const device = state?.devices.find(d => d.deviceId.startsWith('keeb:'));
   // The output socket feeds the live preview; it is skipped over relay and
   // while there is no card to show.
   const stream = useLightingFrames(!!device && !isTunnelActive());
 
-  if (state === undefined) return null;
+  if (loading) return null;
   if (!device) {
     return (
       <SettingsSection title={t('keeb.settings.passive.title')} description={t('keeb.settings.passive.subtitle')}>
@@ -38,9 +31,11 @@ export function KeebTypeReactive() {
       </SettingsSection>
     );
   }
+  const scope = scopeFor(device);
   return (
     <KeebTypeReactiveSection
-      key={device.id}
+      key={scope.key}
+      scope={scope}
       device={device}
       inputAvailable={state?.inputAvailable ?? false}
       stream={stream}
@@ -48,13 +43,14 @@ export function KeebTypeReactive() {
   );
 }
 
-function KeebTypeReactiveSection({ device, inputAvailable, stream }: {
+function KeebTypeReactiveSection({ device, inputAvailable, stream, scope }: {
   device: KeyReactiveDevice;
   inputAvailable: boolean;
   stream: ReturnType<typeof useLightingFrames>;
+  scope: TypeReactiveScope;
 }) {
   const { t } = useTranslation();
-  const controller = useTypeReactiveConfig(device.id, device.config);
+  const controller = useTypeReactiveConfig(device.id, device.config, scope);
   return (
     <SettingsSection
       title={t('keeb.settings.passive.title')}
