@@ -748,6 +748,8 @@ export const setPins = async (ids: string[], pin: Pin | null): Promise<boolean> 
 // keeps showing the untouched colour, exactly like per-device brightness.
 
 export interface LightingColorAdjust {
+  /** Independently replace reddish output colours with pure red. Missing means off. */
+  redShift?: boolean;
   /** Red channel gain, 0.3..1.7. 1 = untouched. */
   red: number;
   green: number;
@@ -782,7 +784,7 @@ export type LightingColorAdjustPatch = Partial<LightingColorAdjust> & { brightne
 // service leaves anything absent alone, so moving one slider cannot flatten
 // the others across devices that disagree on them.
 export const setLightingColorAdjust = (ids: string[], patch: LightingColorAdjustPatch) =>
-  postService('/devices/lighting-devices/color-adjust', { ids, ...patch });
+  postService<ApiEnvelope>('/devices/lighting-devices/color-adjust', { ids, ...patch });
 
 // Per-device frame-rate cap for slow hardware. null turns the cap off.
 export const setLightingMaxRate = (id: string, maxRateHz: number | null) =>

@@ -186,6 +186,48 @@ function assertIsolated(state: Fixture) {
   expect(state.pageErrors).toEqual([]);
 }
 
+test('dashboard Red Shift is checked, persistent and scoped to its own device', async ({ page }, testInfo) => {
+  const state = fixture('monitor');
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await isolate(page, state);
+  const adjustments: Record<string, Record<string, unknown>> = {};
+  const writes: unknown[] = [];
+  await page.route('**/preferences', route => route.fulfill({ json: {
+    language: 'en', themeMode: 'dark', ui: { lightingDashboardMode: 'advanced', widgetAdvancedMode: true },
+  } }));
+  await page.route('**/devices/lighting-devices/color-adjust', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      for (const id of body.ids) adjustments[id] = {
+        red: 1, green: 1, blue: 1, temperature: 0, saturation: 1, colorOrder: 'RGB',
+        ...adjustments[id], redShift: body.redShift,
+      };
+      return route.fulfill({ json: { error: false } });
+    }
+    return route.fulfill({ json: { adjustments } });
+  });
+  await page.goto('/system/lighting');
+  const card = page.locator('[class*="deviceCard"]').filter({ has: page.getByText('Fixture A', { exact: true }) }).first();
+  await expect(card).toBeVisible();
+  await card.click({ button: 'right' });
+  await page.getByRole('button', { name: 'Red Shift', exact: true }).click();
+  await expect.poll(() => writes).toEqual([{ ids: ['a'], redShift: true }]);
+  await page.waitForTimeout(200);
+  await card.click({ button: 'right' });
+  const row = page.getByRole('button', { name: 'Red Shift', exact: true });
+  await expect(row.locator('.lucide-check')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('red-shift-menu.png') });
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await expect(card).toBeVisible();
+  await card.click({ button: 'right' });
+  await expect(page.getByRole('button', { name: 'Red Shift', exact: true }).locator('.lucide-check')).toBeVisible();
+  expect(adjustments.b).toBeUndefined();
+  expect(state.pins).toEqual(fixture('monitor').pins);
+  expect(state.pageErrors).toEqual([]);
+});
+
 for (const surface of ['y70', 'monitor', 'phone'] as const) {
   test(`compact animation pick releases pins and resumes paused output on ${surface}`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport(surface));

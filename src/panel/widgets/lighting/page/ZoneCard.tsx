@@ -290,6 +290,8 @@ export function ZoneCard({
   onToggleControlled,
   onOpenSettings,
   onOpenColorTuning,
+  onToggleRedShift,
+  redShift,
   onOpenKeyReactions,
   typeReactiveOn,
   onRename,
@@ -346,6 +348,9 @@ export function ZoneCard({
   /** Opens the colour-tuning modal. Unlike the LED map it is meaningful for a
    *  whole selection, so the row stays on the menu in bulk mode. */
   onOpenColorTuning?: () => void;
+  /** This card only, including when it belongs to a multi-selection. */
+  onToggleRedShift?: () => void;
+  redShift?: boolean;
   /** Opens the key-reactions modal on this keyboard. Like Customize it stays
    *  on THIS card in a selection; omitted for a card that is not a per-key keyboard. */
   onOpenKeyReactions?: () => void;
@@ -553,6 +558,13 @@ export function ZoneCard({
         icon: <Blend size={14} />,
         label: bulkMenuLabel(t, language, bulk && { count: tunableCount }, 'lighting.colorTuning.menu', 'lighting.colorTuning.menuCount'),
         onSelect: onOpenColorTuning,
+      });
+    }
+    if (onToggleRedShift && !unavailable) {
+      editors.push({
+        key: 'redShift', icon: <Blend size={14} />,
+        label: t('lighting.redShift.menu'), checked: redShift === true,
+        onSelect: onToggleRedShift,
       });
     }
     if (onOpenKeyReactions) {

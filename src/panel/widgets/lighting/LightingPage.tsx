@@ -11,8 +11,7 @@ import {
   fetchCurrentSync, fetchAvailableMappings,
   setLightingPaused,
   resetDeviceLayouts, applyDeviceLayouts, setActiveLayoutPreset, updateLayoutPreset, identifyLightingDevice,
-  fetchLightingColorAdjust,
-  type LightingDevice, type LightingColorAdjust, type LedMapEntry, type Pin, type PostProcessSettings,
+  type LightingDevice, type LedMapEntry, type Pin, type PostProcessSettings,
   type DeviceLayoutDto, type PresetApp,
 } from '../../../api/lighting';
 import { groupNamesOf, type DeviceGroup } from '../../../lib/deviceGroups';
@@ -41,6 +40,7 @@ import type { ServiceState } from '../../../hooks/useServiceState';
 import type { ConnectionState } from '../../../hooks/useServiceStatus';
 import type { DashboardSectionNavigate } from '../../engine/panelLayoutHelpers';
 import { isColorAdjusted } from './page/colorTuning';
+import { useDeviceColorAdjust } from './page/useDeviceColorAdjust';
 import { buildDeviceBlocks, sortZonesWithinDevice, type ZoneBlock } from './page/deviceBlocks';
 import { usePins } from './page/usePins';
 import { canStack, isStackedSet, setStackLayout, stackDevices, stackOf, unstackDevices, withStacked, type DeviceStack } from './page/deviceStacks';
@@ -1709,16 +1709,14 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
     [orderedDevices],
   );
   const [colorTuningIds, setColorTuningIds] = useState<string[] | null>(null);
-  // The service answers only the cards it holds trims for. Its write publishes
-  // no topic, so this refetches with the device list and once the modal's last
-  // write lands. Only the newest request's answer is kept.
-  const [colorAdjusts, setColorAdjusts] = useState<Record<string, LightingColorAdjust>>({});
-  const colorAdjustSeqRef = useRef(0);
-  const refreshColorAdjust = useCallback(async () => {
-    const seq = ++colorAdjustSeqRef.current;
-    const data = await fetchLightingColorAdjust().catch(() => null);
-    if (data && seq === colorAdjustSeqRef.current) setColorAdjusts(data.adjustments ?? {});
-  }, []);
+  const {
+    adjustments: colorAdjusts, refresh: refreshColorAdjust, toggleRedShift,
+    ready: colorAdjustReady, error: redShiftError,
+  } = useDeviceColorAdjust(activeProfileKey, serviceOnline);
+  const redShiftIds = useMemo(
+    () => new Set(Object.keys(colorAdjusts).filter(id => colorAdjusts[id].redShift === true)),
+    [colorAdjusts],
+  );
   // Brightness counts: it is one of the modal's controls, and Reset restores it
   // with the rest.
   const colorTunedIds = useMemo(
@@ -3066,6 +3064,7 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
           </div>
         )}
         <div className={styles.devicePane}>
+          {redShiftError && <Notice tone="critical" role="alert">{t('lighting.redShift.saveFailed')}</Notice>}
           {railSearch.open && (
             <RailSearchField
               className={styles.railSearch}
@@ -3104,6 +3103,8 @@ export function LightingPage({ serviceOnline, serviceState, connectionState, act
             onOpenSettings={handleOpenSettings}
             onOpenColorTuning={handleOpenColorTuning}
             colorTunedIds={colorTunedIds}
+            redShiftIds={redShiftIds}
+            onToggleRedShift={colorAdjustReady ? id => { void toggleRedShift(id); } : undefined}
             keyReactiveIds={keyReactiveIds}
             keyReactiveOnIds={keyReactiveOnIds}
             onOpenKeyReactions={setKeyReactionsId}

@@ -1337,3 +1337,20 @@ describe('ZoneCard needs-binding state', () => {
     expect(card.className).toContain(styles.deviceCardWithStrip);
   });
 });
+
+describe('Red Shift device menu', () => {
+  it.each([false, true])('shows a per-device checked toggle (%s) even in a selection', redShift => {
+    const onToggleRedShift = vi.fn();
+    render(<ZoneCard device={baseDevice} selected indent={false} onSelect={() => {}} onToggleRedShift={onToggleRedShift} redShift={redShift} bulk={{ count: 2, identifyCount: 2, tunableCount: 2, controlled: true, ledsOn: true, setControlled: vi.fn(), setPower: vi.fn(), identify: vi.fn() }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'lighting.devices.moreActions' }));
+    const row = screen.getByRole('button', { name: 'lighting.redShift.menu' });
+    expect(!!row.querySelector('.lucide-check')).toBe(redShift);
+    fireEvent.click(row);
+    expect(onToggleRedShift).toHaveBeenCalledTimes(1);
+  });
+  it('omits the toggle on firmware-controlled cards', () => {
+    render(<ZoneCard device={baseDevice} selected={false} indent={false} onSelect={() => {}} onToggleRedShift={vi.fn()} firmwareControlled onOpenDevicePage={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'lighting.devices.moreActions' }));
+    expect(screen.queryByText('lighting.redShift.menu')).toBeNull();
+  });
+});

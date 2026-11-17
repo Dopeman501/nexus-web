@@ -77,6 +77,10 @@ describe('isColorAdjusted', () => {
     expect(isColorAdjusted(adjust({ colorOrder: 'GRB' }))).toBe(true);
   });
 
+  it('keeps independent Red Shift outside the tuning indicator', () => {
+    expect(isColorAdjusted(adjust({ redShift: true }))).toBe(false);
+  });
+
   it('counts a moved gain as tuned', () => {
     expect(isColorAdjusted(adjust({ red: 1.2 }))).toBe(true);
   });

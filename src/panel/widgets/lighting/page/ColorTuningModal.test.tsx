@@ -126,9 +126,9 @@ describe('ColorTuningModal', () => {
     expect(setBrightness).not.toHaveBeenCalled();
   });
 
-  it('reset returns the scope to neutral', async () => {
+  it('reset returns tuning to neutral without clearing independent Red Shift', async () => {
     fetchAdjust.mockResolvedValue({
-      adjustments: { a: { red: 1.4, green: 0.6, blue: 1, temperature: 0.5, saturation: 1.8 } },
+      adjustments: { a: { red: 1.4, green: 0.6, blue: 1, temperature: 0.5, saturation: 1.8, redShift: true } },
     });
     await renderModal(['a']);
 
