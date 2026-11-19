@@ -33,6 +33,27 @@ node node_modules/@playwright/test/cli.js test -c e2e/audioBeatTransitions.confi
 
 The beat configuration now runs the same video setup, including its MP4 round-trip input. Every browser fixture intercepts its HTTP/socket requests and reads compiled files directly; it starts no Nexus listener. Run GPU suites sequentially. Windows process restrictions can prevent Edge startup independently of a product failure.
 
+## Stability and efficiency
+
+`e2e/efficiency.spec.ts` runs against an explicit service dashboard asset root and pinned index hash using the same intercepted production router. It observes actual WebGL draws, canvas mirrors and program creation without replacing the rendering calls. It covers Q60/remote capture eligibility, unsaved local Audio Trigger previews, normal/audio sleep, source changes during sleep, Web View final release/re-add, and video/Finish Videos continuation. A virtual-clock case verifies that page revival restores reload intervals without a native state echo and final release retires them; its clock advance is not a performance measurement.
+
+The D215 is display-only and has no native Screen sleep input. The circle case therefore builds `efficiency-circle/` from the actual circle owners and `PanelScreenSleep` into ignored `.playwright/efficiency-circle/`, then drives that isolated UI's real fade/wake events. It proves those components' render-only pause behavior; it does not establish a native D215 sleep command. The fixture stays outside product `dist`, installation and hardware flows.
+
+Use the asset/hash environment variables above, set a distinct `EFFICIENCY_RUN`, and run:
+
+```powershell
+node node_modules/@playwright/test/cli.js test -c playwright.efficiency.config.ts
+node node_modules/vitest/vitest.mjs run --config vitest.efficiency.config.ts --coverage src/panel/background src/panel/d215 src/panel/webview src/panel/widgets/web-view src/panel/PanelApp --maxWorkers=2
+```
+
+The coverage config retains complete changed owners and enforces 80% lines and branches per file without excluding failure paths. `PanelApp.integrationCoverage.test.tsx` exercises actual editor, layout, surface and recovery flows; its public drag-event adapter does not claim pointer-sensor coverage. The browser's short work counts prove eliminated work, not matched CPU/memory savings or installed/physical behavior.
+
+For repeatable long probes, `node scripts/run-efficiency-probe.mjs` bundles the checked-in `e2e/efficiencyRuntimeProbe.ts` into an ignored cache. Set `EFFICIENCY_CANDIDATE_ASSET_ROOT` and `EFFICIENCY_CANDIDATE_INDEX_SHA256` to a frozen compiled tree, and choose a unique `EFFICIENCY_PROBE_RUN`. `EFFICIENCY_MODE=soak` warms for two minutes, measures the fixed scene for 30 minutes, then creates/closes 20 fresh contexts. `EFFICIENCY_SCENARIO` selects `local`, `q60`, `sleep`, or `composite`; composite runs the three surfaces concurrently in isolated contexts in one Edge tree. All requests stay intercepted. Its weak program counters, draw/copy counts, DOM/heap samples and own-browser CPU/private bytes/handles/threads are recorded under `../builds/nexus-efficiency-20261117/web/runtime/`. Aggregate browser CPU/private memory cannot be attributed to an individual surface; each page retains separate TaskDuration and work counters.
+
+`EFFICIENCY_MODE=benchmark` additionally requires `EFFICIENCY_BASELINE_ASSET_ROOT` and `EFFICIENCY_BASELINE_INDEX_SHA256`. It runs three sequential baseline/candidate pairs with two-minute warmups and five-minute measurement windows. It freezes the observed baseline CPU/committed-memory ranges before comparing candidate results. CPU comparisons normalize by actual elapsed time. `EFFICIENCY_QUIET=1` is valid only after builds/tests and competing profiling stop; otherwise the output explicitly withholds a CPU savings verdict. Set `EFFICIENCY_INTERFERENCE` to the actual conditions. `EFFICIENCY_SMOKE=1` runs short launcher checks and never qualifies as the long acceptance protocol. These probes cover their isolated Edge tree; installed Nexus service/overlay and physical delivery require separate evidence.
+
+Optional `EFFICIENCY_CAPTURE_DRIVER=1` adds the source-owned synthetic Windows capture workload from `nexus-overlay/tests/Nexus.Overlay.Bench`. Build the fixed `../builds/nexus-efficiency-20261117/overlay/bench-{baseline,candidate}-layered/Nexus.Overlay.Bench.exe` files first. The launcher hashes each complete driver tree, starts its executable directly with hidden console and no shell, awaits readiness before warming, captures bounded stdout/stderr and validated JSON, and waits for retirement. It records that process's CPU/private memory separately from Edge; a combined CPU/sec comparison explicitly sums the two rates. The driver's two own offscreen opaque layered windows use an unclipped memory DC, WGC and hardware encoding, without Nexus APIs, installed settings or physical devices. Physical 800×800 geometry, renderer/position metadata and authored 30 fps counters must match across repetitions; raw authored/captured/encoded frame counts remain available. Source bindings and quiet conditions must cover both components.
+
 ## Y70 Home and page reordering
 
 The Y70 production-route suites reuse the isolated router above. They require the lockfile dependencies (`npm ci`) and an existing Microsoft Edge installation; native touch input is delivered through CDP. Neither configuration runs video setup or needs FFmpeg/FFprobe.

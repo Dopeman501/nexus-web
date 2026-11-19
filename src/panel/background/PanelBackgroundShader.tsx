@@ -36,6 +36,8 @@ interface PanelBackgroundShaderProps {
   // An opaque widget hides the whole background: stop drawing, keep the last
   // frame and the compiled program so uncovering resumes on the next frame.
   covered?: boolean;
+  // Screen sleep stops only drawing; audio/sensor demand and shader state continue.
+  renderPaused?: boolean;
   // Opt-in synchronous mirrors for full-frame transitions; no capture for other callers.
   onMediaReady?: (source: PictureSource | null) => void;
   onFrameRetiring?: (source: HTMLCanvasElement) => void;
@@ -56,7 +58,7 @@ export function PanelBackgroundShader(props: PanelBackgroundShaderProps) {
   );
 }
 
-function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, surface, fullRes, covered = false, onMediaReady, onFrameRetiring }: PanelBackgroundShaderProps) {
+function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, surface, fullRes, covered = false, renderPaused = false, onMediaReady, onFrameRetiring }: PanelBackgroundShaderProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioAllowed = usePanelAudioReactive(surface);
   const drawing = resolveBackgroundDrawing(
@@ -80,9 +82,13 @@ function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, su
   const callbacksRef = useRef({ onMediaReady, onFrameRetiring });
   callbacksRef.current = { onMediaReady, onFrameRetiring };
   const frameBridgeRef = useRef<ReturnType<typeof createShaderFrameBridge> | null>(null);
-  const drawFrame = useMemo(() => (canvas: HTMLCanvasElement) => frameBridgeRef.current?.draw(canvas), []);
+  const renderPausedRef = useRef(renderPaused);
+  renderPausedRef.current = renderPaused;
+  const drawFrame = useMemo(() => (canvas: HTMLCanvasElement) => {
+    if (!renderPausedRef.current) frameBridgeRef.current?.draw(canvas);
+  }, []);
   const onDrawRef = useRef<((canvas: HTMLCanvasElement) => void) | null>(null);
-  onDrawRef.current = captureEnabled ? drawFrame : null;
+  onDrawRef.current = captureEnabled && !renderPaused ? drawFrame : null;
   useLayoutEffect(() => {
     const callbacks = callbacksRef.current;
     if (!captureEnabled || !callbacks.onMediaReady) return;
@@ -101,8 +107,8 @@ function PanelBackgroundShaderLayer({ effect, template, opacity, effectState, su
   // res, so cap its backing store to half DPR. q60 is the only Q-series surface
   // (Q60 + Q80 share the LCD and both infer to it). fullRes lifts the cap for
   // the desktop simulator, which renders on the host GPU.
-  const visibleRef = useRef(!covered);
-  visibleRef.current = !covered;
+  const visibleRef = useRef(!covered && !renderPaused);
+  visibleRef.current = !covered && !renderPaused;
   const glass = usePanelGlassSurface(surface);
   const renderOptions = useMemo(() => (
     { maxDevicePixelRatio: glass === 'q60' && !fullRes ? 0.5 : 1, visibleRef, onDrawRef }

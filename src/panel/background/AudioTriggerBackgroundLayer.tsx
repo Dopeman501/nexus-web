@@ -10,12 +10,13 @@ import styles from './AudioTriggerBackgroundLayer.module.scss';
 import type { PictureSource } from './transitions/source';
 
 /** Only the selected snapshot mounts resources; normal selection stays persisted. */
-export function AudioTriggerBackgroundLayer({ background, deviceId, themeMode, surface, fullRes, onImageReady, onMediaReady, onVideoRetiring, onFrameRetiring }: {
+export function AudioTriggerBackgroundLayer({ background, deviceId, themeMode, surface, fullRes, renderPaused = false, onImageReady, onMediaReady, onVideoRetiring, onFrameRetiring }: {
   background: D215PanelBackground;
   deviceId?: string;
   themeMode: 'dark' | 'light';
   surface: PanelSurface;
   fullRes?: boolean;
+  renderPaused?: boolean;
   onImageReady?: (image: HTMLImageElement | null) => void;
   onMediaReady?: (source: PictureSource | null) => void;
   onVideoRetiring?: (video: HTMLVideoElement) => void;
@@ -37,7 +38,7 @@ export function AudioTriggerBackgroundLayer({ background, deviceId, themeMode, s
     style={{ '--panel-background-solid': solidColor } as CSSProperties}>
     {shader ? <PanelBackgroundShader effect={theme.backgroundEffect} template={theme.backgroundTemplate}
       effectState={theme.backgroundEffectState} surface={surface} fullRes={fullRes} opacity={theme.backgroundOpacity}
-      onMediaReady={onMediaReady} onFrameRetiring={onFrameRetiring} />
+      renderPaused={renderPaused} onMediaReady={onMediaReady} onFrameRetiring={onFrameRetiring} />
       : media ? <PanelBackgroundMedia deviceId={deviceId!} id={theme.backgroundMediaId!} type={theme.backgroundMediaType!}
         alpha={theme.backgroundMediaAlpha} opacity={theme.backgroundOpacity}
         onImageReady={onImageReady}

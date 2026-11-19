@@ -56,6 +56,7 @@ afterEach(() => {
   hosts = [];
   delete (window as TestWindow).chrome;
   document.body.innerHTML = '';
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -426,6 +427,213 @@ describe('teardown', () => {
   });
 });
 
+describe('claim-scoped idle ownership', () => {
+  it('attempts final release after an uncertain first sync without replaying it while idle', () => {
+    const host = makeHost();
+    const claim = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.postMessage.mockImplementationOnce(() => { throw new Error('Uncertain first sync'); });
+    bridge.push(caps());
+    claim.release(); frame();
+    expect(syncs().filter(sync => sync.views.length === 0)).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds bridge failure diagnostics across repeated active heartbeat retries', () => {
+    const host = makeHost();
+    const claim = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    bridge.push(caps());
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.postMessage.mockImplementation(() => { throw new Error('Disconnected native bridge'); });
+    vi.advanceTimersByTime(20_000);
+    expect(warning).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(31_000);
+    expect(warning).toHaveBeenCalledTimes(2);
+    claim.release(); frame();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('parks after a failed final native release and rate-limits the diagnostic', () => {
+    const host = makeHost();
+    const claim = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false, refreshMinutes: 1 });
+    bridge.push(caps());
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.postMessage.mockImplementation(() => { throw new Error('Disconnected native bridge'); });
+    claim.release();
+    expect(() => frame()).not.toThrow();
+    expect(vi.getTimerCount()).toBe(0);
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    window.dispatchEvent(new Event('animationstart'));
+    expect(raf).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
+  it('retires pagehide timers even if native release throws, then resends current claims on pageshow', () => {
+    const host = makeHost();
+    host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false, refreshMinutes: 1 });
+    bridge.push(caps());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.postMessage.mockImplementationOnce(() => { throw new Error('Disconnected native bridge'); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(vi.getTimerCount()).toBe(0);
+    window.dispatchEvent(new Event('pageshow'));
+    expect(syncs().at(-1)!.views[0].id).toBe('a');
+  });
+
+  it('retries unchanged active intent after a failed post rather than caching it as delivered', () => {
+    const host = makeHost(); const tile = makeEl();
+    host.register({ id: 'a', url: 'https://a.test/', element: tile.el, immersive: false });
+    bridge.push(caps());
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    tile.moveTo({ x: 50, y: 60, w: 300, h: 300 });
+    bridge.postMessage.mockImplementationOnce(() => { throw new Error('Disconnected native bridge'); });
+    window.dispatchEvent(new Event('resize'));
+    expect(() => frame()).not.toThrow();
+    const failed = bridge.postMessage.mock.calls.length;
+    window.dispatchEvent(new Event('resize')); frame();
+    expect(bridge.postMessage.mock.calls.length).toBe(failed + 1);
+    expect(syncs().at(-1)!.views[0].rect.x).toBe(50);
+    expect(warning).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases a still-live native view once on terminal disposal', () => {
+    const host = makeHost();
+    host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    bridge.push(caps());
+    host.dispose(); host.dispose();
+    expect(syncs().filter(sync => sync.views.length === 0)).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('still releases local timers and observers when the retiring native bridge is unavailable', () => {
+    const host = makeHost();
+    host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false, refreshMinutes: 1 });
+    bridge.push(caps());
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.postMessage.mockImplementation(() => { throw new Error('Disconnected native bridge'); });
+    host.dispose(); host.dispose();
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('restarts the bounded capability wait when a new claim arrives before a late capability reply', () => {
+    const host = makeHost();
+    const first = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    first.release(); frame();
+    expect(vi.getTimerCount()).toBe(0);
+    host.register({ id: 'b', url: 'https://b.test/', element: makeEl().el, immersive: false });
+    vi.advanceTimersByTime(1499);
+    expect(host.getSnapshot().status).toBe('pending');
+    vi.advanceTimersByTime(2);
+    expect(host.getSnapshot().status).toBe('unsupported');
+    bridge.push(caps());
+    expect(syncs().at(-1)!.views[0].id).toBe('b');
+  });
+
+  it('disconnects claim observers and rejects late retired observer callbacks after a new claim epoch', () => {
+    const observers: Array<{ callback: () => void; disconnect: ReturnType<typeof vi.fn> }> = [];
+    class Observer {
+      disconnect = vi.fn(); observe = vi.fn(); unobserve = vi.fn();
+      constructor(readonly callback: () => void) { observers.push(this); }
+    }
+    vi.stubGlobal('ResizeObserver', Observer);
+    vi.stubGlobal('MutationObserver', Observer);
+    try {
+      const host = makeHost();
+      const claim = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+      bridge.push(caps());
+      expect(observers).toHaveLength(2);
+      claim.release(); frame();
+      expect(observers.every(observer => observer.disconnect.mock.calls.length === 1)).toBe(true);
+      host.register({ id: 'b', url: 'https://b.test/', element: makeEl().el, immersive: false }); frame();
+      const raf = vi.spyOn(window, 'requestAnimationFrame');
+      observers[0].callback(); observers[1].callback();
+      expect(raf).not.toHaveBeenCalled();
+      observers[2].callback();
+      expect(raf).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('sends one final release then performs no layout RAF or reload/heartbeat work for unrelated events', async () => {
+    const host = makeHost();
+    const claim = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false, refreshMinutes: 1 });
+    bridge.push(caps());
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    claim.release();
+    frame();
+    expect(syncs().filter(s => s.views.length === 0)).toHaveLength(1);
+    const before = bridge.postMessage.mock.calls.length;
+    raf.mockClear();
+    for (const type of ['resize', 'scroll', 'animationstart', 'animationend', 'transitionrun', 'transitionend']) window.dispatchEvent(new Event(type));
+    document.body.appendChild(document.createElement('span'));
+    await Promise.resolve();
+    vi.advanceTimersByTime(120_000);
+    expect(raf).not.toHaveBeenCalled();
+    expect(bridge.postMessage.mock.calls.length).toBe(before);
+    expect(vi.getTimerCount()).toBe(0);
+    raf.mockRestore();
+  });
+
+  it('rejects already queued layout callbacks after release/disposal and wakes once for a new claim', () => {
+    const host = makeHost();
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    const first = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    bridge.push(caps());
+    window.dispatchEvent(new Event('animationstart'));
+    const late = raf.mock.calls.at(-1)![0];
+    first.release();
+    frame();
+    const idlePosts = bridge.postMessage.mock.calls.length;
+    raf.mockClear();
+    late(100);
+    expect(raf).not.toHaveBeenCalled();
+    expect(bridge.postMessage.mock.calls.length).toBe(idlePosts);
+    const next = host.register({ id: 'b', url: 'https://b.test/', element: makeEl().el, immersive: false });
+    frame();
+    expect(syncs().at(-1)!.views[0].id).toBe('b');
+    expect(bridge.postMessage.mock.calls.filter(c => c[0].type === 'nexus.webview.hello')).toHaveLength(1);
+    const stale = raf.mock.calls.at(-1)![0];
+    host.dispose();
+    raf.mockClear();
+    stale(200); next.setZoom(2); next.setUrl('https://c.test/'); next.setRefreshMinutes(1); next.release();
+    expect(raf).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    raf.mockRestore();
+  });
+
+  it('keeps late capability receiving alive while idle without reviving observers or timers', () => {
+    const host = makeHost();
+    const first = host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    first.release();
+    frame();
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    bridge.push(caps());
+    expect(host.getSnapshot().status).toBe('supported');
+    window.dispatchEvent(new Event('animationstart'));
+    vi.advanceTimersByTime(2000);
+    expect(raf).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(syncs()).toHaveLength(0);
+    host.register({ id: 'b', url: 'https://b.test/', element: makeEl().el, immersive: false });
+    frame();
+    expect(syncs().at(-1)!.views[0].id).toBe('b');
+    raf.mockRestore();
+  });
+
+  it('parks unsupported measurement observers but can activate existing claims on late support', () => {
+    const host = makeHost();
+    host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false });
+    vi.advanceTimersByTime(1600);
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    window.dispatchEvent(new Event('animationstart'));
+    vi.advanceTimersByTime(1000);
+    expect(raf).not.toHaveBeenCalled();
+    bridge.push(caps());
+    expect(syncs().at(-1)!.views[0].id).toBe('a');
+    raf.mockRestore();
+  });
+});
+
 describe('tile to immersive to tile', () => {
   it('keeps the id and url in every sync across the whole transition', () => {
     const host = makeHost();
@@ -520,6 +728,73 @@ describe('auto-refresh timer', () => {
   const min = (n: number) => vi.advanceTimersByTime(n * 60_000);
   const tile = (host: WebViewHost, refreshMinutes = 1) =>
     host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: false, refreshMinutes });
+
+  it('rearms one retained tile interval on pageshow without any native state echo', () => {
+    const host = makeHost();
+    const claim = tile(host);
+    bridge.push(caps());
+    min(0.5);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(vi.getTimerCount()).toBe(0);
+    min(1);
+    expect(reloads()).toHaveLength(0);
+    window.dispatchEvent(new Event('pageshow'));
+    min(0.5);
+    window.dispatchEvent(new Event('pageshow'));
+    min(0.5);
+    expect(reloads().map(message => message.id)).toEqual(['a']);
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pageshow'));
+    min(1);
+    expect(reloads().map(message => message.id)).toEqual(['a', 'a']);
+    claim.release(); frame();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rearms refresh after both pagehide release and pageshow sync fail without a native echo', () => {
+    const host = makeHost();
+    tile(host);
+    bridge.push(caps());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bridge.postMessage
+      .mockImplementationOnce(() => { throw new Error('Disconnected while hiding'); })
+      .mockImplementationOnce(() => { throw new Error('Disconnected while resuming'); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(vi.getTimerCount()).toBe(0);
+    expect(() => window.dispatchEvent(new Event('pageshow'))).not.toThrow();
+    min(1);
+    expect(reloads().map(message => message.id)).toEqual(['a']);
+  });
+
+  it.each(['error', 'crashed', 'disabled', 'immersive', 'released', 'unsupported'] as const)(
+    'does not revive a refresh timer for a %s claim on pageshow', mode => {
+      const host = makeHost();
+      const claim = tile(host, mode === 'disabled' ? 0 : 1);
+      bridge.push(caps({ supported: mode !== 'unsupported' }));
+      if (mode === 'error' || mode === 'crashed') bridge.push({
+        type: 'nexus.webview.state', id: 'a', state: mode, canGoBack: false,
+      });
+      if (mode === 'immersive') host.register({ id: 'a', url: 'https://a.test/', element: makeEl().el, immersive: true });
+      window.dispatchEvent(new Event('pagehide'));
+      expect(vi.getTimerCount()).toBe(0);
+      if (mode === 'released') claim.release();
+      window.dispatchEvent(new Event('pageshow'));
+      min(1);
+      expect(reloads()).toHaveLength(0);
+    },
+  );
+
+  it('restores only eligible slot reloads after pageshow without a native state echo', () => {
+    const host = makeHost();
+    tile(host);
+    host.register({ id: 'b', url: 'https://b.test/', element: makeEl().el, immersive: false, refreshMinutes: 1 });
+    bridge.push(caps({ maxViews: 1 }));
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pageshow'));
+    min(1);
+    expect(reloads().map(message => message.id)).toEqual(['a']);
+    expect(host.getSnapshot().overLimit).toEqual(['b']);
+  });
 
   it('reloads every N minutes while a tile on a supported host', () => {
     const host = makeHost();
@@ -770,6 +1045,36 @@ describe('view limit and stable slots', () => {
     frame();
     expect(host.getSnapshot().overLimit).toEqual([]);
     expect(syncs().at(-1)!.views.map(v => v.id)).toEqual(['b', 'c']);
+  });
+
+  it('publishes cleared limit state before an idle host revives a formerly waiting widget', () => {
+    const host = makeHost();
+    const a = reg(host, 'a'), b = reg(host, 'b');
+    bridge.push(caps({ maxViews: 1 }));
+    expect(host.getSnapshot().overLimit).toEqual(['b']);
+    const listener = vi.fn();
+    host.subscribe(listener);
+    a.release(); b.release(); frame();
+    expect(host.getSnapshot().overLimit).toEqual([]);
+    expect(listener).toHaveBeenCalledOnce();
+    reg(host, 'b'); frame();
+    expect(host.getSnapshot().overLimit).toEqual([]);
+    expect(syncs().at(-1)!.views.map(view => view.id)).toEqual(['b']);
+  });
+
+  it('clears transient limit state when every claim retires before its first native sync', () => {
+    const host = makeHost();
+    const seed = reg(host, 'seed');
+    bridge.push(caps({ maxViews: 1 }));
+    seed.release(); frame();
+    const posted = syncs().length;
+    const a = reg(host, 'a'), b = reg(host, 'b');
+    expect(host.getSnapshot().overLimit).toEqual(['b']);
+    a.release(); b.release();
+    expect(host.getSnapshot().overLimit).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+    frame();
+    expect(syncs()).toHaveLength(posted);
   });
 });
 

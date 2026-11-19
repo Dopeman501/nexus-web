@@ -6,10 +6,11 @@ import { PanelBackgroundShader } from './PanelBackgroundShader';
 type DrawRef = React.RefObject<((canvas: HTMLCanvasElement) => void) | null>;
 let drawRef: DrawRef | undefined;
 let stateRef: React.RefObject<EffectState | null>;
+let visibleRef: React.RefObject<boolean>;
 
 vi.mock('../../hooks/useShaderRenderer', () => ({
-  useShaderRenderer: (_canvas: unknown, _effect: unknown, state: typeof stateRef, _audio: unknown, options: { onDrawRef?: DrawRef }) => {
-    drawRef = options.onDrawRef; stateRef = state;
+  useShaderRenderer: (_canvas: unknown, _effect: unknown, state: typeof stateRef, _audio: unknown, options: { onDrawRef?: DrawRef; visibleRef: typeof visibleRef }) => {
+    drawRef = options.onDrawRef; stateRef = state; visibleRef = options.visibleRef;
     return { ready: true, error: null };
   },
 }));
@@ -41,6 +42,29 @@ describe('PanelBackgroundShader transition frames', () => {
     draw(container);
     expect(drawRef?.current).toBeNull();
     expect(drawImage).not.toHaveBeenCalled();
+  });
+
+  it('pauses only rendering while asleep, retaining the canvas, visibility ref and latest settings on wake', () => {
+    const ready = vi.fn();
+    const view = render(<PanelBackgroundShader {...props} onMediaReady={ready} />);
+    const canvas = view.container.querySelector('canvas');
+    const stableVisibility = visibleRef;
+    draw(view.container);
+    const lateDraw = drawRef?.current;
+    const copies = drawImage.mock.calls.length;
+    const state = { speed: 2, params: {} };
+    view.rerender(<PanelBackgroundShader {...props} renderPaused effectState={state} onMediaReady={ready} />);
+    expect(visibleRef).toBe(stableVisibility);
+    expect(visibleRef.current).toBe(false);
+    draw(view.container);
+    act(() => lateDraw?.(canvas!)); // A previously queued observer must not copy while hidden.
+    expect(drawImage).toHaveBeenCalledTimes(copies);
+    expect(stateRef.current).toBe(state);
+    view.rerender(<PanelBackgroundShader {...props} effectState={state} onMediaReady={ready} />);
+    expect(visibleRef.current).toBe(true);
+    expect(view.container.querySelector('canvas')).toBe(canvas);
+    draw(view.container);
+    expect(drawImage.mock.calls.length).toBeGreaterThan(copies);
   });
 
   it('rotates only the CPU mirror for new shader state and retires old pixels before release', () => {

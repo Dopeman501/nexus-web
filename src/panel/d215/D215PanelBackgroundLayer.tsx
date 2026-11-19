@@ -10,11 +10,12 @@ import styles from './D215PanelsLayer.module.scss';
 
 const ROUND_SURFACE = 'lcd-round';
 
-export function D215PanelBackgroundLayer({ background, deviceId, themeMode, covered = false }: {
+export function D215PanelBackgroundLayer({ background, deviceId, themeMode, covered = false, renderPaused = false }: {
   background: Background;
   deviceId?: string;
   themeMode: 'dark' | 'light';
   covered?: boolean;
+  renderPaused?: boolean;
 }) {
   const theme = d215BackgroundTheme(background);
   const [failedId, setFailedId] = useState<string | null>(null);
@@ -30,7 +31,7 @@ export function D215PanelBackgroundLayer({ background, deviceId, themeMode, cove
   return <div className={styles.background} data-d215-panel-background
     style={{ '--panel-background-solid': resolvePanelBackground(theme.backgroundColor, theme.backgroundColorLight, themeMode) } as CSSProperties}>
     {mode === 'shader' ? <PanelBackgroundShader effect={theme.backgroundEffect} template={theme.backgroundTemplate}
-      effectState={theme.backgroundEffectState} surface={ROUND_SURFACE} opacity={opacity} covered={covered} />
+      effectState={theme.backgroundEffectState} surface={ROUND_SURFACE} opacity={opacity} covered={covered} renderPaused={renderPaused} />
       : mode === 'media' && deviceId && theme.backgroundSlideshow
         ? <PanelBackgroundSlideshow deviceId={deviceId} startId={theme.backgroundMediaId} intervalSec={theme.backgroundSlideshowInterval}
           shuffle={theme.backgroundSlideshowShuffle} finishVideos={theme.backgroundSlideshowFinishVideos}

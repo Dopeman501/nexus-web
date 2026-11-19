@@ -108,13 +108,20 @@ export class WebViewHost {
   private pageHidden = false;
   private seq = 0;
   private lastKey: string | null = null;
-  private rafPending = false;
+  // A throwing bridge can leave delivery uncertain; terminal cleanup still attempts one empty set.
+  private nativeIntent = false;
+  private rafHandle: number | null = null;
+  private layoutGeneration = 0;
+  private measuring = false;
+  private disposed = false;
+  private lastPostWarningAt = -Infinity;
   private burstUntil = 0;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private capsTimer: ReturnType<typeof setTimeout> | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private mutationObserver: MutationObserver | null = null;
   private teardown: Array<() => void> = [];
+  private layoutTeardown: Array<() => void> = [];
   // Stable slots: an id keeps its place while it has any claim, so tile and
   // immersive share one, and a re-register never reorders the others.
   private slotOrder: string[] = [];
@@ -132,9 +139,12 @@ export class WebViewHost {
   readonly getSnapshot = (): WebViewHostSnapshot => this.snapshot;
 
   register(input: WebViewClaimInput): WebViewClaimHandle {
+    if (this.disposed) return { setUrl: () => {}, setZoom: () => {}, setRefreshMinutes: () => {}, setTouchPage: () => {}, release: () => {} };
     if (this.status === 'idle') this.start();
     const rec: ClaimRecord = { ...input, key: this.nextKey++ };
     this.claims.set(rec.key, rec);
+    this.ensureCapsWait();
+    this.startMeasuring();
     this.resizeObserver?.observe(rec.element);
     if (this.reconcileSlots()) this.emit();
     this.ensureHeartbeat();
@@ -142,21 +152,25 @@ export class WebViewHost {
     this.updateRefreshTimers();
     return {
       setUrl: (url: string) => {
+        if (!this.claims.has(rec.key)) return;
         if (rec.url === url) return;
         rec.url = url;
         this.schedule();
       },
       setZoom: (zoom: number) => {
+        if (!this.claims.has(rec.key)) return;
         if (rec.zoom === zoom) return;
         rec.zoom = zoom;
         this.schedule();
       },
       setRefreshMinutes: (minutes: number) => {
+        if (!this.claims.has(rec.key)) return;
         if (rec.refreshMinutes === minutes) return;
         rec.refreshMinutes = minutes;
         this.updateRefreshTimers();
       },
       setTouchPage: (touchPage: boolean) => {
+        if (!this.claims.has(rec.key)) return;
         if ((rec.touchPage ?? false) === touchPage) return;
         rec.touchPage = touchPage;
         this.schedule();
@@ -166,6 +180,11 @@ export class WebViewHost {
         this.resizeObserver?.unobserve(rec.element);
         this.schedule();
         this.updateRefreshTimers();
+        // With no native state to release, idle can settle without waiting for RAF/caps.
+        if (this.claims.size === 0 && !this.nativeIntent) {
+          this.stopMeasuring();
+          if (this.reconcileSlots()) this.emit();
+        }
       },
     };
   }
@@ -211,8 +230,8 @@ export class WebViewHost {
   }
 
   sendCommand(id: string, command: WebViewCommandName): void {
-    if (!this.transport || this.status !== 'supported') return;
-    this.transport.post({ type: 'nexus.webview.command', id, command });
+    if (this.disposed || !this.transport || this.status !== 'supported') return;
+    if (!this.post({ type: 'nexus.webview.command', id, command })) return;
     if (command === 'reload') {
       this.viewStates = { ...this.viewStates, [id]: { state: 'loading', canGoBack: this.viewStates[id]?.canGoBack ?? false } };
       this.emit();
@@ -222,19 +241,19 @@ export class WebViewHost {
 
   /** Detaches every listener and timer. Tests and hot reload only. */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    try {
+      if (this.transport && this.status === 'supported' && this.nativeIntent) this.send([]);
+    } catch (error) { console.warn('Web View native release unavailable.', error); }
+    this.stopMeasuring();
     for (const off of this.teardown) off();
     this.teardown = [];
-    this.stopHeartbeat();
-    for (const t of this.refreshTimers.values()) clearInterval(t.handle);
-    this.refreshTimers.clear();
     if (this.capsTimer) clearTimeout(this.capsTimer);
     this.capsTimer = null;
-    this.resizeObserver?.disconnect();
-    this.mutationObserver?.disconnect();
-    this.resizeObserver = null;
-    this.mutationObserver = null;
     this.claims.clear();
     this.listeners.clear();
+    this.contextMenuListeners.clear();
   }
 
   private start(): void {
@@ -245,33 +264,35 @@ export class WebViewHost {
       return;
     }
     this.status = 'pending';
-    this.attachListeners();
-    this.transport.post({ type: 'nexus.webview.hello', version: WEBVIEW_PROTOCOL_VERSION });
+    this.attachBridgeListeners();
+    this.post({ type: 'nexus.webview.hello', version: WEBVIEW_PROTOCOL_VERSION });
+    this.ensureCapsWait();
+    this.emit();
+  }
+
+  private ensureCapsWait(): void {
+    if (this.disposed || this.claims.size === 0 || this.status !== 'pending' || this.capsTimer) return;
     // A late caps still upgrades the status, so the timeout only picks the
     // placeholder shown meanwhile.
     this.capsTimer = setTimeout(() => {
       this.capsTimer = null;
       if (this.status === 'pending') {
         this.status = 'unsupported';
-        this.stopHeartbeat();
+        this.stopMeasuring();
         this.emit();
       }
     }, CAPS_TIMEOUT_MS);
-    this.emit();
   }
 
   private on<K extends keyof WindowEventMap>(
     target: Window, type: K, fn: (e: WindowEventMap[K]) => void, opts?: AddEventListenerOptions | boolean,
+    teardown = this.layoutTeardown,
   ): void {
     target.addEventListener(type, fn, opts);
-    this.teardown.push(() => target.removeEventListener(type, fn, opts));
+    teardown.push(() => target.removeEventListener(type, fn, opts));
   }
 
-  private attachListeners(): void {
-    const nudge = () => this.schedule();
-    // A burst-worthy event: layout may keep moving for a while after it.
-    const burst = () => { this.burstUntil = Date.now() + BURST_MS; this.schedule(); };
-
+  private attachBridgeListeners(): void {
     const onCustom = (e: Event) => this.handleInbound((e as CustomEvent).detail);
     window.addEventListener('nexus-webview', onCustom);
     this.teardown.push(() => window.removeEventListener('nexus-webview', onCustom));
@@ -282,6 +303,17 @@ export class WebViewHost {
       wv2.addEventListener('message', onMsg);
       this.teardown.push(() => wv2.removeEventListener('message', onMsg));
     }
+    this.on(window, 'pagehide', () => this.onPageHide(), undefined, this.teardown);
+    this.on(window, 'pageshow', () => this.onPageShow(), undefined, this.teardown);
+  }
+
+  private startMeasuring(): void {
+    if (this.measuring || this.disposed || this.claims.size === 0 || this.pageHidden || this.status !== 'supported') return;
+    this.measuring = true;
+    const generation = this.layoutGeneration;
+    const live = () => !this.disposed && this.measuring && generation === this.layoutGeneration;
+    const nudge = () => { if (live()) this.schedule(); };
+    const burst = () => { if (live()) { this.burstUntil = Date.now() + BURST_MS; this.schedule(); } };
 
     this.on(window, 'resize', nudge);
     this.on(window, 'orientationchange', burst);
@@ -297,14 +329,13 @@ export class WebViewHost {
     this.on(window, 'pointermove', e => this.onPointerMove(e), true);
     this.on(window, 'pointerup', e => this.onPointerEnd(e), true);
     this.on(window, 'pointercancel', e => this.onPointerEnd(e), true);
-    this.on(window, 'pagehide', () => this.onPageHide());
-    this.on(window, 'pageshow', () => this.onPageShow());
     const onVisibility = () => this.flush(false);
     document.addEventListener('visibilitychange', onVisibility);
-    this.teardown.push(() => document.removeEventListener('visibilitychange', onVisibility));
+    this.layoutTeardown.push(() => document.removeEventListener('visibilitychange', onVisibility));
 
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(nudge);
+      for (const c of this.claims.values()) this.resizeObserver.observe(c.element);
     }
     if (typeof MutationObserver !== 'undefined' && document.body) {
       // Overlays are added to the DOM; childList is enough to notice them.
@@ -313,20 +344,44 @@ export class WebViewHost {
     }
   }
 
+  private stopMeasuring(): void {
+    this.measuring = false;
+    this.layoutGeneration++;
+    if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
+    this.rafHandle = null;
+    for (const off of this.layoutTeardown) off();
+    this.layoutTeardown = [];
+    this.resizeObserver?.disconnect();
+    this.mutationObserver?.disconnect();
+    this.resizeObserver = null;
+    this.mutationObserver = null;
+    this.stopHeartbeat();
+    for (const t of this.refreshTimers.values()) clearInterval(t.handle);
+    this.refreshTimers.clear();
+    this.pointers.clear();
+    this.gestureActive = false;
+    this.burstUntil = 0;
+    if (this.claims.size === 0 && this.capsTimer) {
+      clearTimeout(this.capsTimer);
+      this.capsTimer = null;
+    }
+  }
+
   private handleInbound(raw: unknown): void {
+    if (this.disposed) return;
     const msg: WebViewInbound | null = parseInbound(raw);
     if (!msg) return;
     if (msg.type === 'nexus.webview.caps') {
       if (this.capsTimer) { clearTimeout(this.capsTimer); this.capsTimer = null; }
       this.status = msg.supported ? 'supported' : 'unsupported';
-      if (this.status === 'unsupported') this.stopHeartbeat();
+      if (this.status === 'unsupported') this.stopMeasuring();
       this.interactive = msg.interactive;
       this.contextMenu = msg.contextMenu;
       this.longPress = msg.longPress;
       this.navControls = msg.navControls;
       this.maxViews = msg.maxViews;
       this.emit();
-      if (this.status === 'supported') this.flush(true);
+      if (this.status === 'supported') { this.startMeasuring(); this.flush(true); }
       return;
     }
     if (msg.type === 'nexus.webview.contextmenu') {
@@ -369,21 +424,26 @@ export class WebViewHost {
 
   private onPageHide(): void {
     this.pageHidden = true;
-    if (this.transport && this.status === 'supported') {
-      this.send([]);
+    try {
+      if (this.transport && this.status === 'supported' && this.nativeIntent) this.send([]);
+    } finally {
+      this.lastKey = EMPTY_KEY;
+      this.stopMeasuring();
     }
-    this.lastKey = EMPTY_KEY;
   }
 
   private onPageShow(): void {
     if (!this.pageHidden) return;
     this.pageHidden = false;
     this.lastKey = null;
+    this.startMeasuring();
+    // Slot identity may be unchanged, so a native state echo/emit is not guaranteed.
+    this.updateRefreshTimers();
     this.flush(true);
   }
 
   private ensureHeartbeat(): void {
-    if (this.heartbeat || !this.transport || this.status === 'unsupported') return;
+    if (this.heartbeat || this.disposed || this.claims.size === 0 || this.pageHidden || !this.transport || this.status !== 'supported') return;
     this.heartbeat = setInterval(() => this.flush(true), HEARTBEAT_MS);
   }
 
@@ -394,12 +454,14 @@ export class WebViewHost {
 
   // rAF-throttled: any number of triggers in a frame produce one measurement.
   private schedule(): void {
-    if (this.rafPending || !this.transport) return;
-    this.rafPending = true;
-    requestAnimationFrame(() => {
-      this.rafPending = false;
+    if (this.rafHandle !== null || this.disposed || !this.transport || this.status !== 'supported' || this.pageHidden) return;
+    if (this.claims.size === 0 && !this.nativeIntent) return;
+    const generation = this.layoutGeneration;
+    this.rafHandle = requestAnimationFrame(() => {
+      if (this.disposed || generation !== this.layoutGeneration) return;
+      this.rafHandle = null;
       this.flush(false);
-      if (Date.now() < this.burstUntil) this.schedule();
+      if (this.measuring && this.claims.size > 0 && Date.now() < this.burstUntil) this.schedule();
     });
   }
 
@@ -424,7 +486,7 @@ export class WebViewHost {
   // unchanged is left running, so unrelated updates never postpone a reload.
   private updateRefreshTimers(): void {
     const want = new Map<string, number>();
-    if (this.status === 'supported') {
+    if (!this.disposed && !this.pageHidden && this.status === 'supported') {
       const immersiveIds = new Set<string>();
       for (const c of this.claims.values()) if (c.immersive) immersiveIds.add(c.id);
       for (const c of this.claims.values()) {
@@ -517,7 +579,19 @@ export class WebViewHost {
   }
 
   private flush(force: boolean): void {
-    if (!this.transport || this.status !== 'supported' || this.pageHidden) return;
+    if (this.disposed || !this.transport || this.status !== 'supported' || this.pageHidden) return;
+    if (this.claims.size === 0) {
+      try {
+        if (this.nativeIntent) this.send([]);
+      } finally {
+        // This generation is locally retired even if its final release could not be sent.
+        // A new claim must send a full set again; native watchdog bounds a lost release.
+        if (this.lastKey !== null) this.lastKey = EMPTY_KEY;
+        this.stopMeasuring();
+        if (this.reconcileSlots()) this.emit();
+      }
+      return;
+    }
     if (this.reconcileSlots()) this.emit();
     const views = this.buildViews();
     if (views.length === 0 && this.lastKey === null) return;
@@ -530,21 +604,34 @@ export class WebViewHost {
       return;
     }
     if (!force && key === this.lastKey) return;
-    this.lastKey = key;
     this.ensureHeartbeat();
-    this.send(views);
+    if (this.send(views)) this.lastKey = key;
   }
 
-  private send(views: WebViewSyncView[]): void {
-    if (!this.transport) return;
-    this.sentViews = new Map(views.map(v => [v.id, { visible: v.visible, interactive: v.interactive }]));
+  private send(views: WebViewSyncView[]): boolean {
+    this.nativeIntent = views.length > 0;
     const msg: WebViewOutbound = {
       type: 'nexus.webview.sync',
       seq: ++this.seq,
       viewport: { w: window.innerWidth, h: window.innerHeight },
       views,
     };
-    this.transport.post(msg);
+    if (!this.post(msg)) return false;
+    this.sentViews = new Map(views.map(v => [v.id, { visible: v.visible, interactive: v.interactive }]));
+    return true;
+  }
+
+  private post(message: WebViewOutbound): boolean {
+    if (!this.transport) return false;
+    try { this.transport.post(message); return true; }
+    catch (error) {
+      const now = Date.now();
+      if (now - this.lastPostWarningAt >= 30_000) {
+        this.lastPostWarningAt = now;
+        console.warn('Web View bridge unavailable; current layout will retry while active.', error);
+      }
+      return false;
+    }
   }
 }
 

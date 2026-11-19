@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -34,7 +34,7 @@ export function audioBeatSeed({ effect = 'gl-transitions:WaterDrop', main = true
 }
 
 /** Times actual production transition stages. All HTTP/socket traffic is intercepted by productionFixture. */
-export async function audioBeatFixture(page: Page, record = audioBeatSeed()) {
+export async function audioBeatFixture(page: Page, record = audioBeatSeed(), additionalRoute?: (route: Route) => Promise<boolean>) {
   await page.addInitScript(() => {
     const events: AudioBeatTransitionEvent[] = [];
     const captures: AudioBeatCanvasCapture[] = [];
@@ -86,6 +86,7 @@ export async function audioBeatFixture(page: Page, record = audioBeatSeed()) {
   const shaderHashes = Object.fromEntries(Object.entries(shaders)
     .map(([effect, source]) => [effect, createHash('sha256').update(source).digest('hex')]));
   const fixture = await productionFixture(page, record, { additionalRoute: async route => {
+    if (additionalRoute && await additionalRoute(route)) return true;
     const request = route.request();
     if (request.method() !== 'GET') return false;
     const path = new URL(request.url()).pathname;

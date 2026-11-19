@@ -18,6 +18,17 @@ vi.mock('../background/PanelBackgroundSlideshow', () => ({ PanelBackgroundSlides
 afterEach(() => vi.clearAllMocks());
 
 describe('D215 independent background rendering', () => {
+  it('pauses only circle shader rendering and leaves media/slideshow coverage unchanged', () => {
+    const view = render(<D215PanelBackgroundLayer themeMode="dark" renderPaused
+      background={{ mode: 'shader', effect: 'plasma' }} />);
+    expect(mocks.shader).toHaveBeenLastCalledWith(expect.objectContaining({ renderPaused: true, covered: false }));
+    view.rerender(<D215PanelBackgroundLayer themeMode="dark" deviceId="device" renderPaused
+      background={{ mode: 'media', mediaId: 'clip', mediaType: 'animated' }} />);
+    expect(mocks.media).toHaveBeenLastCalledWith(expect.objectContaining({ covered: false }));
+    view.rerender(<D215PanelBackgroundLayer themeMode="dark" deviceId="device" renderPaused
+      background={{ mode: 'media', slideshow: true }} />);
+    expect(mocks.slideshow).toHaveBeenLastCalledWith(expect.objectContaining({ covered: false }));
+  });
   it('retries a transient media failure with backoff and cancels retries on unmount', () => {
     vi.useFakeTimers();
     try {

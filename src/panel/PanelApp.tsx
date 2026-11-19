@@ -1345,7 +1345,9 @@ export function PanelContent({
   const pictureTransition = useBackgroundPictureTransition({
     ownerKey: deviceId ?? '', settings: transitionCycle.transition, chooseTransition: transitionCycle.chooseTransition,
     beatSettings: resolveAudioTriggerBeatTransition(effectiveTheme), effectsAvailable: transitionCycle.effectsAvailable,
-    enabled: showBackgroundLayers && !backgroundCovered && !focusStaticMode && !screenHidden && wsConnected && !transitionPreviewActive,
+    // Capability includes unsaved initial/New previews, independently of saved trigger.enabled.
+    // Slideshow owns its own transitions and does not need this cross-channel mirror.
+    enabled: audioPreviewAllowed && showBackgroundLayers && !screenHidden && wsConnected && !transitionPreviewActive,
     selection: {
       key: pictureSelectionKey, channel: audioBackground ? 'audio' : 'normal',
       origin: audioBackground ? audioPreview ? 'preview' : 'rhythm' : 'normal',
@@ -2615,7 +2617,7 @@ export function PanelContent({
       >
         {showWallpaperLayer && <PanelBackgroundDesktop opacity={effectiveTheme.backgroundOpacity} />}
         {audioBackground && <AudioTriggerBackgroundLayer background={audioBackground} deviceId={deviceId}
-          themeMode={resolvedThemeMode} surface={surface} fullRes={simulator}
+          themeMode={resolvedThemeMode} surface={surface} fullRes={simulator} renderPaused={screenHidden}
           onMediaReady={pictureTransition.captureEnabled ? pictureTransition.onMediaReady : undefined}
           onVideoRetiring={pictureTransition.onVideoRetiring} onFrameRetiring={pictureTransition.onFrameRetiring} />}
         {showBackgroundLayers && !audioBackground && effectiveTheme.backgroundMode === 'shader' && (
@@ -2627,6 +2629,7 @@ export function PanelContent({
             surface={surface}
             fullRes={simulator}
             covered={backgroundCovered}
+            renderPaused={screenHidden}
             onMediaReady={pictureTransition.captureEnabled ? pictureTransition.onMediaReady : undefined}
             onFrameRetiring={pictureTransition.onFrameRetiring}
           />
@@ -2696,7 +2699,7 @@ export function PanelContent({
             )) : widgetStage}
             {showD215Panels && (
               <div className={styles.d215PanelsStage}>
-                <D215PanelsLayer panels={d215Panels} themeMode={resolvedThemeMode}
+                <D215PanelsLayer panels={d215Panels} themeMode={resolvedThemeMode} renderPaused={screenHidden}
                   deviceId={deviceId} editing={simulator && panelsEditing && !restricted} selectedId={simulatorSelectedWidgetId}
                   previewScale={simulatorPreviewScale} onSelect={onSimulatorWidgetClicked}
                   onChange={next => setFullLayout({ ...fullLayout, d215Panels: next })} />

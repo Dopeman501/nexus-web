@@ -72,4 +72,12 @@ describe('PanelBackgroundShader audio effects', () => {
     render(<PanelBackgroundShader {...props} covered />);
     expect(audioEnabled.at(-1)).toBe(false);
   });
+
+  it('keeps audio demand alive during render-only sleep', () => {
+    const view = render(<PanelBackgroundShader {...props} renderPaused />);
+    expect(audioEnabled.at(-1)).toBe(true);
+    view.rerender(<PanelBackgroundShader {...props} />);
+    expect(audioEnabled.at(-1)).toBe(true);
+    expect(rendered.at(-1)?.audioRef).toBe(audioRefStub);
+  });
 });

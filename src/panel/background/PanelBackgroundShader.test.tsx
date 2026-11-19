@@ -30,4 +30,10 @@ describe('PanelBackgroundShader sensor provider', () => {
     rerender(<PanelBackgroundShader {...props} />);
     expect(enabledSeen.at(-1)).toBe(true);
   });
+
+  it('retains sensor demand during render-only sleep', () => {
+    sensors = [{ name: 'u_a_s' }];
+    render(<PanelBackgroundShader {...props} renderPaused />);
+    expect(enabledSeen.at(-1)).toBe(true);
+  });
 });

@@ -17,6 +17,7 @@ interface LayerProps {
   previewScale?: number;
   deviceId?: string;
   themeMode?: 'dark' | 'light';
+  renderPaused?: boolean;
   onChange?: (panels: D215PanelsState) => void;
   onSelect?: (id: string) => void;
 }
@@ -58,7 +59,7 @@ function sameGeometry(left: D215PanelInstance, right: D215PanelInstance): boolea
 }
 
 /** Shared by the actual framebuffer and its desktop preview; only the latter edits. */
-export function D215PanelsLayer({ panels, editing = false, selectedId = null, previewScale = 1, deviceId, themeMode = 'dark', onChange, onSelect }: LayerProps) {
+export function D215PanelsLayer({ panels, editing = false, selectedId = null, previewScale = 1, deviceId, themeMode = 'dark', renderPaused = false, onChange, onSelect }: LayerProps) {
   const { t } = useTranslation();
   const root = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
@@ -205,7 +206,7 @@ export function D215PanelsLayer({ panels, editing = false, selectedId = null, pr
               onKeyDown={event => key(event, item)}
               onClick={editing ? event => { event.stopPropagation(); onSelect?.(item.id); } : undefined}>
               <D215PanelFace item={item} app={app} backgroundsEnabled={panels.backgroundsEnabled !== false}
-                deviceId={deviceId} themeMode={themeMode} editing={editing} contentStyle={contentStyle} />
+                deviceId={deviceId} themeMode={themeMode} editing={editing} contentStyle={contentStyle} renderPaused={renderPaused} />
               {selected && (Object.keys(CORNERS) as D215ResizeCorner[]).map(corner => (
                 <button key={corner} type="button" className={styles.handle} data-corner={corner}
                   aria-label={t(`panel.freeform.handle.${CORNERS[corner]}`, { name: label })}

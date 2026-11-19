@@ -1,10 +1,20 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AudioTriggerBackgroundLayer } from './AudioTriggerBackgroundLayer';
-vi.mock('./PanelBackgroundShader', () => ({ PanelBackgroundShader: (props: { effect: string }) => <div data-testid="shader">{props.effect}</div> }));
+vi.mock('./PanelBackgroundShader', () => ({ PanelBackgroundShader: (props: { effect: string; renderPaused?: boolean }) => <div data-testid="shader" data-render-paused={props.renderPaused}>{props.effect}</div> }));
 vi.mock('./PanelBackgroundMedia', () => ({ PanelBackgroundMedia: (props: { id: string; onFailed: () => void }) => <button data-testid="media" onClick={props.onFailed}>{props.id}</button> }));
 
 describe('Audio Trigger selected background rendering', () => {
+  it('propagates render-only sleep to the selected audio shader without replacing it', () => {
+    const view = render(<AudioTriggerBackgroundLayer background={{ mode: 'shader', effect: 'plasma' }}
+      themeMode="dark" surface="lcd-wide" renderPaused />);
+    const shader = screen.getByTestId('shader');
+    expect(shader).toHaveAttribute('data-render-paused', 'true');
+    view.rerender(<AudioTriggerBackgroundLayer background={{ mode: 'shader', effect: 'plasma' }}
+      themeMode="dark" surface="lcd-wide" />);
+    expect(screen.getByTestId('shader')).toBe(shader);
+    expect(shader).toHaveAttribute('data-render-paused', 'false');
+  });
   it('mounts only the chosen type, preserving its colour, opacity and frost settings', () => {
     const hook = render(<AudioTriggerBackgroundLayer background={{ mode: 'solid', color: '#ff0000', opacity: 0.4 }} themeMode="dark" surface="lcd-wide" deviceId="one" />);
     expect(hook.container.querySelector('[data-audio-trigger-background]')?.getAttribute('style')).toContain('#ff0000');

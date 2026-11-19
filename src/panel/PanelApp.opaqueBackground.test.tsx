@@ -8,6 +8,24 @@ import type { PanelLayout, PanelSurface, PanelWidgetSize } from './types';
 // transport and the shader's WebGL are mocked.
 const fetchMock = vi.fn();
 const shaderCovered: boolean[] = [];
+const shaderCapture: boolean[] = [];
+const shaderPaused: boolean[] = [];
+const sleepFrame = vi.hoisted(() => ({ asleep: false, request: () => {}, faded: () => {}, wakeStart: () => {}, wake: () => {} }));
+vi.mock('./chrome/PanelControlCenter', () => ({ PanelControlCenter: ({ onScreenSleep }: { onScreenSleep: () => void }) => {
+  sleepFrame.request = onScreenSleep;
+  return null;
+} }));
+vi.mock('./chrome/PanelScreenSleep', () => ({ PanelScreenSleep: (props: {
+  asleep: boolean; onSleepFaded(): void; onWakeStart(): void; onWake(): void;
+}) => {
+  Object.assign(sleepFrame, { asleep: props.asleep, faded: props.onSleepFaded, wakeStart: props.onWakeStart, wake: props.onWake });
+  return null;
+} }));
+const environment = vi.hoisted(() => ({ connected: false, local: true }));
+vi.mock('./background/panelAudio', async importOriginal => ({
+  ...await importOriginal<typeof import('./background/panelAudio')>(),
+  isLocalPanelClient: () => environment.local,
+}));
 const audioTrigger = vi.hoisted(() => ({ choice: null as null | { mode: 'solid'; color: string }, enabled: [] as boolean[] }));
 const audioPreview = vi.hoisted(() => ({ choice: null as null | { mode: 'solid'; color: string } }));
 vi.mock('./background/useAudioTriggerPreview', () => ({ useAudioTriggerPreview: (_id: unknown, enabled: boolean) => enabled ? audioPreview.choice : null }));
@@ -38,7 +56,7 @@ vi.mock('../api/service', async importOriginal => ({
 
 vi.mock('../hooks/useMultiplexSocket', async importOriginal => ({
   ...await importOriginal<typeof import('../hooks/useMultiplexSocket')>(),
-  useMultiplex: () => null,
+  useMultiplex: () => environment.connected ? { connected: true } : null,
   useTopic: () => null,
   useTopicCallback: () => {},
 }));
@@ -49,8 +67,10 @@ vi.mock('./engine/panelSync', () => ({
 }));
 
 vi.mock('./background/PanelBackgroundShader', () => ({
-  PanelBackgroundShader: ({ covered }: { covered?: boolean }) => {
+  PanelBackgroundShader: ({ covered, onMediaReady, renderPaused }: { covered?: boolean; onMediaReady?: unknown; renderPaused?: boolean }) => {
     shaderCovered.push(covered === true);
+    shaderCapture.push(typeof onMediaReady === 'function');
+    shaderPaused.push(renderPaused === true);
     return null;
   },
 }));
@@ -94,10 +114,72 @@ beforeEach(() => {
   audioTrigger.choice = null;
   audioPreview.choice = null;
   audioTrigger.enabled = [];
+  environment.connected = false;
+  environment.local = true;
   shaderCovered.length = 0;
+  shaderCapture.length = 0;
+  shaderPaused.length = 0;
   fetchMock.mockReset();
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
   vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+describe('PanelApp cross-channel shader capture eligibility', () => {
+  for (const [surface, local] of [['q60', true], ['y70', false]] as const) {
+    it(`never installs a cross-channel shader mirror on ${surface} with local=${local}`, async () => {
+      environment.connected = true;
+      environment.local = local;
+      const record = recordWith(surface, '2x2');
+      record.layout.pages[0].widgets = [];
+      fetchMock.mockResolvedValue({ found: true, record: { ...record,
+        backgroundTransitions: { enabled: true, effects: ['gl-transitions:WaterDrop'], durationMs: 800 } } });
+      await mountKiosk();
+      expect(shaderCapture.length).toBeGreaterThan(0);
+      expect(shaderCapture.every(value => !value)).toBe(true);
+    });
+  }
+
+  for (const enabled of [false, true]) {
+    it(`keeps local outgoing shader capture available for initial/New previews with saved trigger enabled=${enabled}`, async () => {
+      environment.connected = true;
+      const record = recordWith('y70', '2x2');
+      record.layout.pages[0].widgets = [];
+      fetchMock.mockResolvedValue({ found: true, record: { ...record,
+        backgroundAudioTrigger: { enabled, intensity: 50, switchDelay: 0.3, shuffle: false, backgrounds: [] },
+        backgroundTransitions: { enabled: true, effects: ['gl-transitions:WaterDrop'], durationMs: 800 } } });
+      await mountKiosk();
+      expect(shaderCapture.at(-1)).toBe(true);
+    });
+  }
+});
+
+describe('PanelApp render-only sleep wiring', () => {
+  for (const circle of [false, true]) {
+    it(`continues the ${circle ? 'circle' : 'normal'} shader through fade-in and resumes at wake start`, async () => {
+      environment.connected = true;
+      const record = recordWith(circle ? 'lcd-wide' : 'y70', '2x2');
+      record.layout.pages[0].widgets = [];
+      if (circle) Object.assign(record, {
+        backgroundMode: 'solid',
+        capabilities: { ...record.capabilities, family: 'jungle-leopard-d215' },
+        layout: { ...record.layout, d215Panels: { enabled: true, items: [{ id: 'circle-one', type: 'clock', x: 0.5, y: 0.5,
+          diameter: 0.5, background: { mode: 'shader', effect: 'plasma' } }] } },
+      });
+      fetchMock.mockResolvedValue({ found: true, record });
+      await mountKiosk();
+      expect(shaderPaused.at(-1)).toBe(false);
+      act(() => sleepFrame.request());
+      expect(sleepFrame.asleep).toBe(true);
+      expect(shaderPaused.at(-1)).toBe(false);
+      act(() => sleepFrame.faded());
+      expect(shaderPaused.at(-1)).toBe(true);
+      act(() => sleepFrame.wakeStart());
+      expect(sleepFrame.asleep).toBe(true);
+      expect(shaderPaused.at(-1)).toBe(false);
+      act(() => sleepFrame.wake());
+      expect(sleepFrame.asleep).toBe(false);
+    });
+  }
 });
 
 describe('PanelApp Audio Trigger background override', () => {
