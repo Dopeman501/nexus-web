@@ -123,8 +123,9 @@ function play(run: Run, runtime: Runtime) {
       const progress = clampProgress((now - start) / run.request.settings.durationMs);
       if (progress === 1 || due(now)) run.adapter!.seek(progress);
       if (progress === 1) {
+        // Keep the incoming endpoint visible until the caller commits the
+        // handoff and unmounts or replaces the transition layer.
         notify(run, 'complete');
-        void retire(run, runtime).catch(warnCleanup);
       } else run.frame = runtime.requestFrame(tick);
     } catch (error) {
       notify(run, 'failed', error);

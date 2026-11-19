@@ -36,19 +36,25 @@ function harness(factory: AdapterFactory, frameCap: () => number | null = () => 
 }
 afterEach(() => { document.body.replaceChildren(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
-it('uses one paced clock, presents the endpoint and completes once with cleanup', async () => {
+it('holds the completed incoming endpoint until the caller commits the handoff', async () => {
   const adapter = { seek: vi.fn(), dispose: vi.fn() };
   const { runner, tick, frames, stage } = harness(() => adapter);
   const input = request();
   expect(await runner.replace(input)).toBe(true);
+  const layer = stage.firstElementChild as HTMLElement;
   expect(frames.size).toBe(1);
   [0, 50, 100, 150, 200, 250].forEach(tick);
   await flush();
   expect(adapter.seek.mock.calls.map(([value]) => value)).toEqual([0, 0, 0.5, 1]);
   expect(input.onComplete).toHaveBeenCalledTimes(1);
   expect(input.onFailed).not.toHaveBeenCalled();
-  expect(adapter.dispose).toHaveBeenCalledTimes(1);
   expect(frames.size).toBe(0);
+  expect(stage.firstElementChild).toBe(layer);
+  expect(layer.style.visibility).not.toBe('hidden');
+  expect(adapter.dispose).not.toHaveBeenCalled();
+
+  await runner.cancel();
+  expect(adapter.dispose).toHaveBeenCalledTimes(1);
   expect(stage.children).toHaveLength(0);
 });
 
